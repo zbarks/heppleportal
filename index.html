@@ -4,180 +4,280 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="noindex, nofollow" />
-<title>Hepple · Analytics Portal</title>
-<meta name="description" content="Sales, fulfilment and behavioural analytics for Hepple Spirits." />
+<title>Hepple · Portal</title>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="./styles.css" />
+<link rel="icon" type="image/x-icon" href="./favicon.ico" />
+<link rel="icon" type="image/png" sizes="32x32" href="./assets/brand/favicon-portal-32.png" />
 </head>
 <body>
-<!-- DEMO BANNER (shown by app.js when any feed returns demo:true) -->
+
+<!-- DEMO BANNER -->
 <div id="demoBanner" class="demo-banner" hidden>
-  <div class="demo-banner__inner">
-    <span class="demo-banner__dot" aria-hidden="true"></span>
-    <p class="demo-banner__text">
-      <strong>Demo data.</strong>
-      Showing realistic sample figures. Connect Stripe, Supabase &amp; PostHog to switch this portal to live data —
-      see the <code>README</code>.
-    </p>
-  </div>
+  <span class="demo-dot"></span>
+  <span>Demo data — connect Stripe, Supabase &amp; PostHog to go live. See <code>README</code>.</span>
 </div>
 
-<header class="masthead">
-  <div class="masthead__inner">
-    <div class="masthead__brand">
-      <img class="masthead__logo" src="./assets/brand/hepple-logotype-blue.png" alt="Hepple" />
-      <span class="masthead__divider" aria-hidden="true"></span>
-      <span class="masthead__title">Analytics&nbsp;Portal</span>
+<!-- SIDEBAR NAV -->
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar__brand">
+    <img src="./assets/brand/hepple-logotype-cream.png" alt="Hepple" class="sidebar__logo" />
+    <span class="sidebar__sub">Portal</span>
+  </div>
+  <ul class="sidebar__nav">
+    <li><a href="#overview"   class="sidebar__link is-active" data-section="overview">
+      <svg viewBox="0 0 20 20"><path d="M3 3h6v6H3zm8 0h6v6h-6zM3 11h6v6H3zm8 0h6v6h-6z"/></svg>Overview
+    </a></li>
+    <li><a href="#orders"     class="sidebar__link" data-section="orders">
+      <svg viewBox="0 0 20 20"><path d="M4 3h12a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm1 3v8h10V6H5zm2 2h6v1H7zm0 3h4v1H7z"/></svg>Orders
+    </a></li>
+    <li><a href="#products"   class="sidebar__link" data-section="products">
+      <svg viewBox="0 0 20 20"><path d="M10 2l8 4v8l-8 4-8-4V6l8-4zm0 2.3L4.5 7 10 9.7l5.5-2.7L10 4.3zm-7 4.1v5.2l6 3V11.4l-6-3zm8 8.2l6-3V8.4l-6 3v5.2z"/></svg>Products
+    </a></li>
+    <li><a href="#fulfilment" class="sidebar__link" data-section="fulfilment">
+      <svg viewBox="0 0 20 20"><path d="M4 4h12v2H4zm0 4h12v2H4zm0 4h8v2H4zm10 1l2 2 4-4-1-1-3 3-1-1z"/></svg>Fulfilment
+    </a></li>
+    <li><a href="#traffic"    class="sidebar__link" data-section="traffic">
+      <svg viewBox="0 0 20 20"><path d="M2 14l4-8 4 5 3-3 5 6H2zm15-9a2 2 0 1 1-4 0 2 2 0 0 1 4 0z"/></svg>Traffic
+    </a></li>
+    <li><a href="#customers"  class="sidebar__link" data-section="customers">
+      <svg viewBox="0 0 20 20"><path d="M10 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-6 8a6 6 0 1 1 12 0H4z"/></svg>Customers
+    </a></li>
+  </ul>
+  <div class="sidebar__footer">
+    <div class="sidebar__status">
+      <span class="status-dot" id="statusDot"></span>
+      <span class="status-label" id="statusLabel">Connecting…</span>
     </div>
-    <div class="masthead__meta">
-      <span class="masthead__source" id="sourcePill" data-state="loading">Connecting…</span>
-      <span class="masthead__updated" id="lastUpdated"></span>
+    <div class="sidebar__updated" id="lastUpdated"></div>
+    <div class="sidebar__by">
+      <!-- Swap barker-digital-logo.png for the real file when available -->
+      <img src="./assets/brand/barker-digital-logo.png" alt="Barker Digital"
+           class="sidebar__bylogo"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+      <span class="sidebar__byword" style="display:none">Barker Digital</span>
     </div>
   </div>
-  <div class="masthead__rule" aria-hidden="true"></div>
+</nav>
+
+<!-- MOBILE TOPBAR -->
+<header class="topbar">
+  <button class="topbar__burger" id="menuBtn" aria-label="Open menu">
+    <span></span><span></span><span></span>
+  </button>
+  <img src="./assets/brand/hepple-logotype-cream.png" alt="Hepple" class="topbar__logo" />
+  <span class="topbar__tag" id="topbarStatus">—</span>
 </header>
 
-<main class="wrap">
+<!-- MAIN CONTENT -->
+<main class="main" id="mainContent">
 
-  <!-- ===== KPI ROW ===== -->
-  <section class="section" aria-labelledby="kpiHead">
-    <div class="section__head">
-      <span class="section__num">01</span>
-      <h2 class="section__title" id="kpiHead">Performance at a glance</h2>
-      <span class="section__hint" id="kpiWindow">Last 90 days</span>
+  <!-- ===================================================
+       OVERVIEW
+  =================================================== -->
+  <section class="page" id="overview">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Overview</h1>
+        <p class="page-desc">Sales performance at a glance</p>
+      </div>
+      <div class="window-picker" id="windowPicker">
+        <button class="wp-btn" data-days="30">30d</button>
+        <button class="wp-btn is-active" data-days="90">90d</button>
+        <button class="wp-btn" data-days="180">6mo</button>
+        <button class="wp-btn" data-days="365">1yr</button>
+      </div>
     </div>
-    <div class="kpis" id="kpis">
-      <!-- KPI cards injected -->
-      <div class="kpi kpi--skeleton" aria-hidden="true"></div>
-      <div class="kpi kpi--skeleton" aria-hidden="true"></div>
-      <div class="kpi kpi--skeleton" aria-hidden="true"></div>
-      <div class="kpi kpi--skeleton" aria-hidden="true"></div>
-      <div class="kpi kpi--skeleton" aria-hidden="true"></div>
-      <div class="kpi kpi--skeleton" aria-hidden="true"></div>
-    </div>
-  </section>
 
-  <!-- ===== REVENUE CHART + PRODUCT SPLIT ===== -->
-  <section class="section" aria-labelledby="revHead">
-    <div class="section__head">
-      <span class="section__num">02</span>
-      <h2 class="section__title" id="revHead">Revenue over time</h2>
-      <span class="section__hint">Daily, last 30 days</span>
+    <!-- KPI grid -->
+    <div class="kpi-grid" id="kpiGrid">
+      <div class="kpi-card kpi--skeleton"></div>
+      <div class="kpi-card kpi--skeleton"></div>
+      <div class="kpi-card kpi--skeleton"></div>
+      <div class="kpi-card kpi--skeleton"></div>
+      <div class="kpi-card kpi--skeleton"></div>
+      <div class="kpi-card kpi--skeleton"></div>
     </div>
-    <div class="grid grid--chart">
-      <div class="panel panel--chart">
-        <canvas id="revenueChart" height="280" aria-label="Daily revenue chart"></canvas>
-      </div>
-      <div class="panel panel--split">
-        <h3 class="panel__title">By product</h3>
-        <ul class="splitlist" id="productSplit"><li class="splitlist__empty">Loading…</li></ul>
-      </div>
-    </div>
-  </section>
 
-  <!-- ===== FULFILMENT ===== -->
-  <section class="section" aria-labelledby="fulHead">
-    <div class="section__head">
-      <span class="section__num">03</span>
-      <h2 class="section__title" id="fulHead">Fulfilment</h2>
-      <span class="section__hint" id="fulSummaryHint"></span>
-    </div>
-    <div class="fulfil">
-      <div class="fulfil__bar" aria-hidden="true"><span id="fulfilFill" class="fulfil__fill" style="width:0%"></span></div>
-      <div class="fulfil__legend">
-        <span class="legend legend--done"><b id="fulDone">0</b> fulfilled</span>
-        <span class="legend legend--open"><b id="fulOpen">0</b> outstanding</span>
-        <span class="legend legend--val"><b id="fulVal">£0</b> awaiting dispatch</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== ORDERS TABLE ===== -->
-  <section class="section" aria-labelledby="ordHead">
-    <div class="section__head">
-      <span class="section__num">04</span>
-      <h2 class="section__title" id="ordHead">Orders</h2>
-      <div class="seg" role="tablist" aria-label="Filter orders">
-        <button class="seg__btn is-active" data-filter="all" role="tab" aria-selected="true">All</button>
-        <button class="seg__btn" data-filter="outstanding" role="tab" aria-selected="false">Outstanding</button>
-        <button class="seg__btn" data-filter="fulfilled" role="tab" aria-selected="false">Fulfilled</button>
-      </div>
-    </div>
-    <div class="tablewrap">
-      <table class="otable">
-        <thead>
-          <tr>
-            <th>Order</th><th>Customer</th><th>Items</th>
-            <th class="num">Total</th><th>Placed</th><th>Status</th><th class="act">Action</th>
-          </tr>
-        </thead>
-        <tbody id="ordersBody">
-          <tr><td colspan="7" class="otable__empty">Loading orders…</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <!-- ===== TRAFFIC & FUNNEL ===== -->
-  <section class="section" aria-labelledby="trafHead">
-    <div class="section__head">
-      <span class="section__num">05</span>
-      <h2 class="section__title" id="trafHead">Traffic &amp; conversion</h2>
-      <span class="section__hint">PostHog · last 30 days</span>
-    </div>
-    <div class="grid grid--traffic">
-      <div class="panel">
-        <h3 class="panel__title">Conversion funnel</h3>
-        <ul class="funnel" id="funnel"><li class="funnel__empty">Loading…</li></ul>
-      </div>
-      <div class="panel">
-        <h3 class="panel__title">Top pages</h3>
-        <ul class="barlist" id="topPages"><li class="barlist__empty">Loading…</li></ul>
-      </div>
-      <div class="panel">
-        <h3 class="panel__title">Where visitors come from</h3>
-        <ul class="barlist" id="sources"><li class="barlist__empty">Loading…</li></ul>
-        <div class="abandon" id="abandon" hidden>
-          <span class="abandon__n" id="abandonN">0</span>
-          <span class="abandon__l">carts abandoned<br /><em id="abandonV"></em></span>
+    <!-- Charts row -->
+    <div class="charts-row">
+      <div class="chart-panel chart-panel--wide">
+        <div class="chart-panel__head">
+          <h3 class="chart-panel__title">Daily revenue</h3>
+          <span class="chart-panel__hint">Last 30 days</span>
         </div>
+        <div class="chart-wrap"><canvas id="revenueChart" height="220"></canvas></div>
+      </div>
+      <div class="chart-panel">
+        <div class="chart-panel__head">
+          <h3 class="chart-panel__title">Monthly trend</h3>
+          <span class="chart-panel__hint">12 months</span>
+        </div>
+        <div class="chart-wrap"><canvas id="monthlyChart" height="220"></canvas></div>
       </div>
     </div>
   </section>
 
-  <!-- ===== TOP CUSTOMERS ===== -->
-  <section class="section" aria-labelledby="custHead">
-    <div class="section__head">
-      <span class="section__num">06</span>
-      <h2 class="section__title" id="custHead">Top customers</h2>
-      <span class="section__hint">By total spend</span>
+  <!-- ===================================================
+       ORDERS
+  =================================================== -->
+  <section class="page" id="orders" hidden>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Orders</h1>
+        <p class="page-desc">Every transaction — click a row for full detail</p>
+      </div>
+      <div class="orders-toolbar">
+        <div class="seg-ctrl" role="tablist">
+          <button class="seg-btn is-active" data-filter="all">All</button>
+          <button class="seg-btn" data-filter="outstanding">Outstanding</button>
+          <button class="seg-btn" data-filter="fulfilled">Fulfilled</button>
+        </div>
+        <input class="order-search" id="orderSearch" type="search" placeholder="Search customer, email, ref…" />
+      </div>
     </div>
-    <div class="tablewrap">
-      <table class="otable otable--cust">
-        <thead>
-          <tr><th>Customer</th><th>Email</th><th class="num">Orders</th><th class="num">Spent</th><th>Last order</th></tr>
-        </thead>
-        <tbody id="custBody">
-          <tr><td colspan="5" class="otable__empty">Loading…</td></tr>
-        </tbody>
-      </table>
+
+    <div class="orders-list" id="ordersList">
+      <div class="orders-list__loading">Loading orders…</div>
+    </div>
+
+    <!-- ORDER DRAWER -->
+    <div class="drawer-overlay" id="drawerOverlay"></div>
+    <aside class="order-drawer" id="orderDrawer" aria-label="Order detail">
+      <button class="drawer-close" id="drawerClose">
+        <svg viewBox="0 0 20 20"><path d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"/></svg>
+      </button>
+      <div class="drawer-content" id="drawerContent">
+        <p class="drawer-empty">Select an order</p>
+      </div>
+    </aside>
+  </section>
+
+  <!-- ===================================================
+       PRODUCTS
+  =================================================== -->
+  <section class="page" id="products" hidden>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Products</h1>
+        <p class="page-desc">Sales breakdown by product</p>
+      </div>
+    </div>
+    <div class="products-grid" id="productsGrid">
+      <div class="kpi-card kpi--skeleton"></div>
+      <div class="kpi-card kpi--skeleton"></div>
+      <div class="kpi-card kpi--skeleton"></div>
+    </div>
+    <div class="charts-row charts-row--solo">
+      <div class="chart-panel chart-panel--wide">
+        <div class="chart-panel__head">
+          <h3 class="chart-panel__title">Units sold by product</h3>
+        </div>
+        <div class="chart-wrap chart-wrap--short"><canvas id="productChart" height="180"></canvas></div>
+      </div>
+    </div>
+    <div class="leaderboard-wrap">
+      <h3 class="section-sub-title">Product leaderboard</h3>
+      <div class="leaderboard" id="productLeaderboard">
+        <p class="empty-state">Loading…</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================
+       FULFILMENT
+  =================================================== -->
+  <section class="page" id="fulfilment" hidden>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Fulfilment</h1>
+        <p class="page-desc">Dispatch status — toggle to mark orders packed</p>
+      </div>
+    </div>
+
+    <!-- Summary bar -->
+    <div class="fulfil-summary">
+      <div class="fulfil-stat fulfil-stat--open">
+        <span class="fulfil-stat__n" id="fulOpen">0</span>
+        <span class="fulfil-stat__l">Outstanding</span>
+      </div>
+      <div class="fulfil-stat fulfil-stat--done">
+        <span class="fulfil-stat__n" id="fulDone">0</span>
+        <span class="fulfil-stat__l">Fulfilled</span>
+      </div>
+      <div class="fulfil-stat fulfil-stat--val">
+        <span class="fulfil-stat__n" id="fulVal">£0</span>
+        <span class="fulfil-stat__l">Awaiting dispatch</span>
+      </div>
+    </div>
+    <div class="fulfil-bar-wrap">
+      <div class="fulfil-bar"><div class="fulfil-fill" id="fulFill" style="width:0%"></div></div>
+    </div>
+
+    <!-- Outstanding orders -->
+    <h3 class="section-sub-title">Outstanding orders</h3>
+    <div class="fulfil-list" id="fulfilList">
+      <p class="empty-state">Loading…</p>
+    </div>
+  </section>
+
+  <!-- ===================================================
+       TRAFFIC
+  =================================================== -->
+  <section class="page" id="traffic" hidden>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Traffic</h1>
+        <p class="page-desc">Visitor behaviour from PostHog · last 30 days</p>
+      </div>
+    </div>
+
+    <div class="traffic-kpis" id="trafficKpis"></div>
+
+    <div class="charts-row">
+      <div class="chart-panel chart-panel--wide">
+        <div class="chart-panel__head">
+          <h3 class="chart-panel__title">Daily visitors</h3>
+        </div>
+        <div class="chart-wrap"><canvas id="visitorsChart" height="200"></canvas></div>
+      </div>
+    </div>
+
+    <div class="traffic-grid">
+      <div class="traffic-card">
+        <h3 class="traffic-card__title">Conversion funnel</h3>
+        <div class="funnel-list" id="funnelList"></div>
+      </div>
+      <div class="traffic-card">
+        <h3 class="traffic-card__title">Top pages</h3>
+        <div class="bar-list" id="topPagesList"></div>
+      </div>
+      <div class="traffic-card">
+        <h3 class="traffic-card__title">Traffic sources</h3>
+        <div class="bar-list" id="sourcesList"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================
+       CUSTOMERS
+  =================================================== -->
+  <section class="page" id="customers" hidden>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Customers</h1>
+        <p class="page-desc">Top buyers by total spend</p>
+      </div>
+    </div>
+    <div class="cust-list" id="custList">
+      <p class="empty-state">Loading…</p>
     </div>
   </section>
 
 </main>
-
-<footer class="footo">
-  <div class="footo__inner">
-    <div class="footo__by">
-      <span class="footo__bylabel">Built &amp; maintained by</span>
-      <span class="footo__brand">
-        <img class="footo__mark" src="./assets/brand/barker-digital-mark.svg" alt="" aria-hidden="true" />
-        <span class="footo__word">Barker&nbsp;Digital</span>
-      </span>
-    </div>
-    <p class="footo__note">Hepple Spirits analytics portal · figures refresh on load</p>
-  </div>
-</footer>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="./app.js" defer></script>

@@ -1,331 +1,769 @@
 /* ============================================================
-   HEPPLE · ANALYTICS PORTAL — client
-   Fetches /api/metrics, /api/orders, /api/analytics in parallel,
-   renders KPIs, charts, tables; wires fulfilment toggle.
-   Vanilla JS, no build step.
+   HEPPLE PORTAL v2 — client app
+   Sidebar SPA: Overview / Orders / Products / Fulfilment /
+   Traffic / Customers
    ============================================================ */
 (function () {
   'use strict';
 
-  var $  = function (s, r) { return (r || document).querySelector(s); };
-  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
-
-  // ---- formatting helpers ----
+  // ---- formatting ----
   var GBP0 = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', maximumFractionDigits: 0 });
   var GBP2 = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', minimumFractionDigits: 2, maximumFractionDigits: 2 });
   var NUM  = new Intl.NumberFormat('en-GB');
-  function money(n, dp) { n = Number(n) || 0; return (dp === 2 ? GBP2 : GBP0).format(n); }
+  function gbp(n, dp) { return (dp === 2 ? GBP2 : GBP0).format(Number(n) || 0); }
   function num(n) { return NUM.format(Number(n) || 0); }
-  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
   function shortDate(iso) {
     if (!iso) return '—';
     var d = new Date(iso); if (isNaN(d)) return '—';
-    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' });
+  }
+  function timeAgo(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso); var now = Date.now();
+    var diff = Math.round((now - d.getTime()) / 60000);
+    if (diff < 60) return diff + 'm ago';
+    diff = Math.round(diff / 60);
+    if (diff < 24) return diff + 'h ago';
+    diff = Math.round(diff / 24);
+    if (diff < 7) return diff + 'd ago';
+    return shortDate(iso);
   }
 
-  var state = { orders: [], filter: 'all', anyDemo: false };
+  // ---- state ----
+  var state = {
+    metrics: null, orders: null, analytics: null,
+    activeSection: 'overview',
+    orderFilter: 'all', orderSearch: '',
+    windowDays: 90,
+    selectedOrder: null,
+    chartsBuilt: {},
+    anyDemo: false,
+  };
 
-  function getJSON(url, opts) {
-    return fetch(url, opts || {}).then(function (r) { return r.json(); })
-      .catch(function () { return { demo: true, error: 'fetch_failed' }; });
+  // ---- fetch ----
+  function api(url) {
+    return fetch(url).then(function(r){ return r.json(); })
+      .catch(function(){ return { demo: true, error: 'fetch_failed' }; });
   }
 
   // ============================================================
   //  BOOT
   // ============================================================
   function boot() {
-    Promise.all([
-      getJSON('/api/metrics'),
-      getJSON('/api/orders'),
-      getJSON('/api/analytics'),
-    ]).then(function (res) {
-      var metrics = res[0], orders = res[1], analytics = res[2];
-      state.anyDemo = !!(metrics.demo || orders.demo || analytics.demo);
+    // Nav
+    document.querySelectorAll('.sidebar__link').forEach(function(a) {
+      a.addEventListener('click', function(e) {
+        e.preventDefault();
+        navigateTo(a.dataset.section);
+        closeSidebar();
+      });
+    });
 
-      renderSourcePill(metrics, orders, analytics);
-      renderKPIs(metrics, analytics);
-      renderRevenue(metrics);
-      renderProductSplit(metrics);
+    // Mobile menu
+    var menuBtn = document.getElementById('menuBtn');
+    if (menuBtn) menuBtn.addEventListener('click', toggleSidebar);
+    var overlay = document.getElementById('drawerOverlay');
+    if (overlay) overlay.addEventListener('click', function() {
+      closeDrawer();
+      closeSidebar();
+    });
 
-      state.orders = (orders.orders || []).slice();
-      renderFulfil(orders.summary || summarise(state.orders));
-      renderOrders();
-      renderCustomers(state.orders);
+    // Window picker
+    document.querySelectorAll('.wp-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('.wp-btn').forEach(function(b){ b.classList.remove('is-active'); });
+        btn.classList.add('is-active');
+        state.windowDays = parseInt(btn.dataset.days, 10);
+        loadMetrics();
+        loadOrders();
+      });
+    });
 
-      renderFunnel(analytics);
-      renderTopPages(analytics);
-      renderSources(analytics);
-      renderAbandon(analytics);
+    // Order filter tabs
+    document.querySelectorAll('.seg-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('.seg-btn').forEach(function(b){ b.classList.remove('is-active'); });
+        btn.classList.add('is-active');
+        state.orderFilter = btn.dataset.filter;
+        renderOrdersList();
+      });
+    });
 
-      if (state.anyDemo) {
-        var b = $('#demoBanner'); if (b) b.hidden = false;
+    // Order search
+    var srch = document.getElementById('orderSearch');
+    if (srch) srch.addEventListener('input', function() {
+      state.orderSearch = srch.value.toLowerCase();
+      renderOrdersList();
+    });
+
+    // Drawer close
+    document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+
+    // Load data
+    loadMetrics();
+    loadOrders();
+    loadAnalytics();
+  }
+
+  // ============================================================
+  //  NAV
+  // ============================================================
+  function navigateTo(section) {
+    state.activeSection = section;
+    document.querySelectorAll('.page').forEach(function(p){ p.hidden = true; });
+    var target = document.getElementById(section);
+    if (target) target.hidden = false;
+    document.querySelectorAll('.sidebar__link').forEach(function(a){
+      a.classList.toggle('is-active', a.dataset.section === section);
+    });
+    // Build charts lazily
+    if (section === 'overview' && !state.chartsBuilt.overview && state.metrics) buildOverviewCharts();
+    if (section === 'products' && !state.chartsBuilt.products && state.metrics) buildProductChart();
+    if (section === 'traffic' && !state.chartsBuilt.traffic && state.analytics) buildTrafficChart();
+    if (section === 'fulfilment' && state.orders) renderFulfilment();
+    if (section === 'customers' && state.orders) renderCustomers();
+    if (section === 'products' && state.orders) renderProductLeaderboard();
+  }
+
+  function toggleSidebar() {
+    document.getElementById('sidebar').classList.toggle('is-open');
+  }
+  function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('is-open');
+  }
+
+  // ============================================================
+  //  LOAD METRICS
+  // ============================================================
+  function loadMetrics() {
+    api('/api/metrics?days=' + state.windowDays).then(function(m) {
+      state.metrics = m;
+      if (m.demo) state.anyDemo = true;
+      updateStatus(m);
+      renderKPIs(m);
+      state.chartsBuilt.overview = false;
+      if (state.activeSection === 'overview') buildOverviewCharts();
+      if (state.activeSection === 'products') {
+        renderProductCards(m);
+        state.chartsBuilt.products = false;
+        buildProductChart();
       }
-      var lu = $('#lastUpdated');
-      if (lu) lu.textContent = new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
     });
   }
 
-  function renderSourcePill(m, o, a) {
-    var pill = $('#sourcePill'); if (!pill) return;
-    if (state.anyDemo) { pill.textContent = 'Demo data'; pill.setAttribute('data-state', 'demo'); }
-    else { pill.textContent = 'Live'; pill.setAttribute('data-state', 'live'); }
+  // ============================================================
+  //  LOAD ORDERS
+  // ============================================================
+  function loadOrders() {
+    api('/api/orders?days=' + state.windowDays).then(function(o) {
+      state.orders = o;
+      if (o.demo) state.anyDemo = true;
+      renderOrdersList();
+      if (state.activeSection === 'fulfilment') renderFulfilment();
+      if (state.activeSection === 'customers') renderCustomers();
+      if (state.activeSection === 'products') renderProductLeaderboard();
+      if (state.activeSection === 'overview' && state.metrics) renderProductCards(state.metrics);
+    });
+  }
+
+  // ============================================================
+  //  LOAD ANALYTICS
+  // ============================================================
+  function loadAnalytics() {
+    api('/api/analytics').then(function(a) {
+      state.analytics = a;
+      if (a.demo) state.anyDemo = true;
+      renderTrafficKPIs(a);
+      renderFunnel(a);
+      renderTopPages(a);
+      renderSources(a);
+      state.chartsBuilt.traffic = false;
+      if (state.activeSection === 'traffic') buildTrafficChart();
+    });
+  }
+
+  // ============================================================
+  //  STATUS
+  // ============================================================
+  function updateStatus(m) {
+    var dot = document.getElementById('statusDot');
+    var lbl = document.getElementById('statusLabel');
+    var topTag = document.getElementById('topbarStatus');
+    var banner = document.getElementById('demoBanner');
+    if (state.anyDemo) {
+      if (dot) { dot.className = 'status-dot demo'; }
+      if (lbl) lbl.textContent = 'Demo data';
+      if (topTag) topTag.textContent = 'Demo';
+      if (banner) banner.hidden = false;
+    } else {
+      if (dot) { dot.className = 'status-dot live'; }
+      if (lbl) lbl.textContent = 'Live · ' + (m.source || 'stripe');
+      if (topTag) topTag.textContent = 'Live';
+    }
+    var lu = document.getElementById('lastUpdated');
+    if (lu) lu.textContent = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   }
 
   // ============================================================
   //  KPIs
   // ============================================================
-  function renderKPIs(m, a) {
-    var conv = (a && a.conversionRate != null) ? a.conversionRate : null;
+  function renderKPIs(m) {
+    var a = state.analytics || {};
     var cards = [
-      { label: 'Revenue (gross)', value: money(m.revenue, 0), sub: num(m.units) + ' units sold', cls: '' },
-      { label: 'Net (after fees)', value: money(m.net, 0), sub: 'est. card + transfer fees', cls: 'kpi--green' },
-      { label: 'Orders', value: num(m.orders), sub: money(m.aov, 2) + ' avg order', cls: 'kpi--teal' },
-      { label: 'Customers', value: num(m.customers), sub: 'unique buyers', cls: '' },
-      { label: 'Avg order value', value: money(m.aov, 2), sub: 'per checkout', cls: '' },
-      { label: 'Conversion', value: conv != null ? conv + '%' : '—', sub: 'visitor → purchase', cls: 'kpi--pink' },
+      { label: 'Revenue', value: gbp(m.revenue, 0), sub: state.windowDays + 'd gross', cls: '' },
+      { label: 'Net (after fees)', value: gbp(m.net, 0), sub: 'est. after Stripe fees', cls: 'kpi-card--green' },
+      { label: 'Orders', value: num(m.orders), sub: gbp(m.aov, 2) + ' avg order', cls: '' },
+      { label: 'Customers', value: num(m.customers), sub: 'unique buyers', cls: 'kpi-card--blue' },
+      { label: 'Units sold', value: num(m.units), sub: 'across all products', cls: '' },
+      { label: 'Conversion', value: a.conversionRate != null ? a.conversionRate + '%' : '—', sub: 'visitor → purchase', cls: 'kpi-card--amber' },
     ];
-    var html = cards.map(function (c) {
-      return '<div class="kpi ' + c.cls + '">' +
+    var html = cards.map(function(c) {
+      return '<div class="kpi-card ' + c.cls + '">' +
         '<p class="kpi__label">' + esc(c.label) + '</p>' +
         '<div class="kpi__value">' + esc(c.value) + '</div>' +
         '<div class="kpi__sub">' + esc(c.sub) + '</div></div>';
     }).join('');
-    $('#kpis').innerHTML = html;
+    document.getElementById('kpiGrid').innerHTML = html;
   }
 
   // ============================================================
-  //  REVENUE CHART
+  //  OVERVIEW CHARTS
   // ============================================================
-  function renderRevenue(m) {
+  var revenueChartInst = null, monthlyChartInst = null;
+  function buildOverviewCharts() {
+    if (!state.metrics) return;
+    var m = state.metrics;
+    state.chartsBuilt.overview = true;
+
+    // Daily revenue
     var daily = m.daily || [];
-    var canvas = $('#revenueChart');
-    if (!canvas || typeof Chart === 'undefined' || !daily.length) return;
-    var ctx = canvas.getContext('2d');
-    var grad = ctx.createLinearGradient(0, 0, 0, 280);
-    grad.addColorStop(0, 'rgba(0,48,135,.22)');
-    grad.addColorStop(1, 'rgba(0,48,135,0)');
-    new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: daily.map(function (d) { return shortDate(d.date); }),
-        datasets: [{
-          label: 'Revenue',
-          data: daily.map(function (d) { return d.revenue; }),
-          borderColor: '#003087', borderWidth: 2,
-          backgroundColor: grad, fill: true,
-          tension: .32, pointRadius: 0, pointHoverRadius: 5,
-          pointHoverBackgroundColor: '#003087',
-        }],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: '#1b1a2e', padding: 10, displayColors: false,
-            callbacks: { label: function (c) { return money(c.parsed.y, 2); } },
-          },
+    var ctx1 = document.getElementById('revenueChart');
+    if (ctx1) {
+      if (revenueChartInst) revenueChartInst.destroy();
+      revenueChartInst = new Chart(ctx1, {
+        type: 'bar',
+        data: {
+          labels: daily.map(function(d){ return d.date.slice(5); }),
+          datasets: [{
+            label: 'Revenue',
+            data: daily.map(function(d){ return d.revenue; }),
+            backgroundColor: 'rgba(163,196,188,.25)',
+            borderColor: 'rgba(163,196,188,.8)',
+            borderWidth: 1,
+            borderRadius: 3,
+          }]
         },
-        scales: {
-          x: { grid: { display: false }, ticks: { color: '#6b6457', font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } },
-          y: { grid: { color: '#e4ddd1' }, ticks: { color: '#6b6457', font: { size: 10 }, callback: function (v) { return '£' + num(v); } } },
+        options: chartDefaults('£', false)
+      });
+    }
+
+    // Monthly
+    var monthly = m.monthly || [];
+    var ctx2 = document.getElementById('monthlyChart');
+    if (ctx2) {
+      if (monthlyChartInst) monthlyChartInst.destroy();
+      monthlyChartInst = new Chart(ctx2, {
+        type: 'line',
+        data: {
+          labels: monthly.map(function(d){ return d.month.slice(2); }),
+          datasets: [{
+            label: 'Revenue',
+            data: monthly.map(function(d){ return d.revenue; }),
+            borderColor: 'rgba(163,196,188,.9)',
+            backgroundColor: 'rgba(163,196,188,.08)',
+            fill: true,
+            tension: 0.4,
+            pointRadius: 3,
+            pointBackgroundColor: 'rgba(163,196,188,.9)',
+          }]
         },
-      },
+        options: chartDefaults('£', false)
+      });
+    }
+  }
+
+  // ============================================================
+  //  ORDERS LIST
+  // ============================================================
+  function renderOrdersList() {
+    var container = document.getElementById('ordersList');
+    if (!state.orders) {
+      container.innerHTML = '<div class="orders-list__loading">Loading orders…</div>';
+      return;
+    }
+    var orders = (state.orders.orders || []).slice();
+    // Filter
+    if (state.orderFilter === 'outstanding') orders = orders.filter(function(o){ return !o.fulfilled; });
+    if (state.orderFilter === 'fulfilled')   orders = orders.filter(function(o){ return !!o.fulfilled; });
+    // Search
+    if (state.orderSearch) {
+      var q = state.orderSearch;
+      orders = orders.filter(function(o) {
+        return (o.customer_name || '').toLowerCase().indexOf(q) !== -1 ||
+               (o.customer_email || '').toLowerCase().indexOf(q) !== -1 ||
+               (o.stripe_session_id || '').toLowerCase().indexOf(q) !== -1 ||
+               (o.cart_summary || '').toLowerCase().indexOf(q) !== -1;
+      });
+    }
+
+    if (!orders.length) {
+      container.innerHTML = '<p class="empty-state">No orders match this filter.</p>';
+      return;
+    }
+
+    var html = orders.map(function(o) {
+      var statusBadge = o.fulfilled
+        ? '<span class="badge badge--done">Fulfilled</span>'
+        : '<span class="badge badge--open">Outstanding</span>';
+      var items = o.items && o.items.length
+        ? o.items.map(function(it){ return it.qty + '× ' + it.name.replace('Hepple ',''); }).join(', ')
+        : (o.cart_summary || '—');
+      return '<div class="order-card" data-id="' + esc(o.stripe_session_id) + '">' +
+        '<div>' +
+          '<span class="order-card__ref">' + esc((o.stripe_session_id || '').slice(-12)) + '</span>' +
+          '<div class="order-card__name">' + esc(o.customer_name || 'Unknown') + '</div>' +
+          '<div class="order-card__email">' + esc(o.customer_email || '') + '</div>' +
+        '</div>' +
+        '<div class="order-card__items">' + esc(items) + '</div>' +
+        '<div class="order-card__total">' + gbp(o.total, 2) + '</div>' +
+        '<div class="order-card__date">' + timeAgo(o.created_at) + '</div>' +
+        '<div class="order-card__status">' + statusBadge + '</div>' +
+      '</div>';
+    }).join('');
+    container.innerHTML = html;
+
+    // Click to open drawer
+    container.querySelectorAll('.order-card').forEach(function(card) {
+      card.addEventListener('click', function() {
+        var id = card.dataset.id;
+        var order = (state.orders.orders || []).find(function(o){ return o.stripe_session_id === id; });
+        if (order) openDrawer(order);
+      });
     });
   }
 
-  function renderProductSplit(m) {
-    var ul = $('#productSplit'); if (!ul) return;
-    var rows = m.byProduct || [];
-    if (!rows.length) { ul.innerHTML = '<li class="splitlist__empty">No product breakdown in live mode — see orders.</li>'; return; }
-    var max = Math.max.apply(null, rows.map(function (r) { return r.revenue; }).concat([1]));
-    ul.innerHTML = rows.map(function (r) {
-      var pct = Math.round((r.revenue / max) * 100);
-      return '<li class="splitlist__row">' +
-        '<div class="splitlist__top"><span class="splitlist__name">' + esc(r.name) + '</span>' +
-        '<span class="splitlist__rev">' + money(r.revenue, 0) + '</span></div>' +
-        '<div class="splitlist__meter"><i style="width:' + pct + '%"></i></div>' +
-        '<span class="splitlist__units">' + num(r.units) + ' units</span></li>';
+  // ============================================================
+  //  ORDER DRAWER
+  // ============================================================
+  function openDrawer(order) {
+    state.selectedOrder = order;
+    var content = document.getElementById('drawerContent');
+    var addr = order.shipping_address || {};
+    var addrLines = [addr.line1, addr.line2, addr.city, addr.postal_code, addr.country]
+      .filter(Boolean).join('<br>');
+
+    var lineItemsHtml = '';
+    if (order.items && order.items.length) {
+      lineItemsHtml = order.items.map(function(it) {
+        return '<div class="drawer-item">' +
+          '<div><div class="drawer-item__name">' + esc(it.name) + '</div>' +
+          '<div class="drawer-item__sku">' + esc(it.sku || '') + '</div></div>' +
+          '<div class="drawer-item__right">' +
+            '<div class="drawer-item__price">' + gbp(it.price * it.qty, 2) + '</div>' +
+            '<div class="drawer-item__qty">× ' + it.qty + ' @ ' + gbp(it.price, 2) + '</div>' +
+          '</div></div>';
+      }).join('');
+    } else if (order.cart_summary) {
+      lineItemsHtml = '<p style="color:var(--text2);font-size:.82rem;">' + esc(order.cart_summary) + '</p>';
+    } else {
+      lineItemsHtml = '<p class="drawer-empty">Line items not available (Supabase/Stripe line items needed)</p>';
+    }
+
+    var fulfilBtn = order.fulfilled
+      ? '<button class="drawer-fulfill-btn drawer-fulfill-btn--unmark" id="drawerFulBtn">Mark as outstanding</button>'
+      : '<button class="drawer-fulfill-btn drawer-fulfill-btn--mark" id="drawerFulBtn">✓ Mark as fulfilled</button>';
+
+    content.innerHTML =
+      '<div class="drawer-section">' +
+        '<div class="drawer-ref">' + esc(order.stripe_session_id || '') + '</div>' +
+        '<div class="drawer-name">' + esc(order.customer_name || 'Unknown') + '</div>' +
+        '<div class="drawer-email">' + esc(order.customer_email || '') + '</div>' +
+      '</div>' +
+
+      '<div class="drawer-section">' +
+        '<div class="drawer-total">' + gbp(order.total, 2) + '</div>' +
+        '<div class="drawer-total-sub">subtotal ' + gbp(order.subtotal, 2) +
+          (order.shipping ? ' + ' + gbp(order.shipping, 2) + ' shipping' : ' · free shipping') + '</div>' +
+      '</div>' +
+
+      (addrLines ? '<div class="drawer-section"><div class="drawer-label">Shipping address</div>' +
+        '<div class="drawer-address">' + addrLines + '</div></div>' : '') +
+
+      '<div class="drawer-section">' +
+        '<div class="drawer-label">Items</div>' +
+        '<div class="drawer-line-items">' + lineItemsHtml + '</div>' +
+      '</div>' +
+
+      '<div class="drawer-section">' +
+        '<div class="drawer-label">Details</div>' +
+        '<div class="drawer-meta-grid">' +
+          '<div class="drawer-meta-item"><div class="drawer-meta-item__label">Placed</div>' +
+            '<div class="drawer-meta-item__val">' + shortDate(order.created_at) + '</div></div>' +
+          '<div class="drawer-meta-item"><div class="drawer-meta-item__label">Status</div>' +
+            '<div class="drawer-meta-item__val">' + (order.fulfilled ? '✓ Fulfilled' : 'Outstanding') + '</div></div>' +
+          (order.fulfilled_at ? '<div class="drawer-meta-item"><div class="drawer-meta-item__label">Fulfilled</div>' +
+            '<div class="drawer-meta-item__val">' + shortDate(order.fulfilled_at) + '</div></div>' : '') +
+          '<div class="drawer-meta-item"><div class="drawer-meta-item__label">Payment</div>' +
+            '<div class="drawer-meta-item__val">' + esc(order.payment_status || 'paid') + '</div></div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="drawer-section">' + fulfilBtn + '</div>';
+
+    document.getElementById('drawerOverlay').classList.add('is-open');
+    document.getElementById('orderDrawer').classList.add('is-open');
+
+    var btn = document.getElementById('drawerFulBtn');
+    if (btn) btn.addEventListener('click', function() {
+      toggleFulfil(order, !order.fulfilled, btn);
+    });
+  }
+
+  function closeDrawer() {
+    document.getElementById('drawerOverlay').classList.remove('is-open');
+    document.getElementById('orderDrawer').classList.remove('is-open');
+    state.selectedOrder = null;
+  }
+
+  function toggleFulfil(order, fulfilled, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    fetch('/api/fulfill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stripe_session_id: order.stripe_session_id, fulfilled: fulfilled }),
+    }).then(function(r){ return r.json(); }).then(function(result) {
+      order.fulfilled = fulfilled;
+      order.fulfilled_at = fulfilled ? new Date().toISOString() : null;
+      renderOrdersList();
+      renderFulfilment();
+      openDrawer(order); // re-render drawer
+    }).catch(function() {
+      if (btn) { btn.disabled = false; btn.textContent = 'Error — retry'; }
+    });
+  }
+
+  // ============================================================
+  //  PRODUCTS
+  // ============================================================
+  var PRODUCT_IMAGES = {
+    'hepple-wild-juniper-gin':  './assets/products/hepple-gin.jpg',
+    'hepple-douglas-fir-vodka': './assets/products/douglas-fir-scene.jpg',
+    'hepple-moorland-vodka':    './assets/products/wheat-vodka.jpg',
+  };
+
+  function renderProductCards(m) {
+    var grid = document.getElementById('productsGrid');
+    if (!grid || !m) return;
+    var by = (m.byProduct || []).slice();
+    var maxRev = Math.max.apply(null, by.map(function(p){ return p.revenue; })) || 1;
+    grid.innerHTML = by.map(function(p, i) {
+      var pct = Math.round(p.revenue / maxRev * 100);
+      var img = PRODUCT_IMAGES[p.slug] || '';
+      var imgHtml = img
+        ? '<div class="product-card__img-wrap"><img class="product-card__img" src="' + esc(img) + '" alt="' + esc(p.name) + '" /></div>'
+        : '';
+      return '<div class="product-card">' +
+        imgHtml +
+        '<div class="product-card__rank">' + (i + 1) + '</div>' +
+        '<div class="product-card__name">' + esc(p.name) + '</div>' +
+        '<div class="product-card__stats">' +
+          '<div class="product-card__stat">' +
+            '<div class="product-card__stat-label">Units</div>' +
+            '<div class="product-card__stat-val">' + num(p.units) + '</div>' +
+          '</div>' +
+          '<div class="product-card__stat">' +
+            '<div class="product-card__stat-label">Revenue</div>' +
+            '<div class="product-card__stat-val">' + gbp(p.revenue, 0) + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="product-card__bar-wrap">' +
+          '<div class="product-card__bar" style="width:' + pct + '%"></div>' +
+        '</div>' +
+      '</div>';
     }).join('');
+  }
+
+  function renderProductLeaderboard() {
+    var el = document.getElementById('productLeaderboard');
+    if (!el || !state.orders) return;
+    var lb = state.orders.productLeaderboard || [];
+    if (!lb.length) { el.innerHTML = '<p class="empty-state">No product data yet.</p>'; return; }
+    var maxUnits = Math.max.apply(null, lb.map(function(p){ return p.units; })) || 1;
+    el.innerHTML = lb.map(function(p, i) {
+      return '<div class="leader-row">' +
+        '<span class="leader-row__pos">' + (i + 1) + '</span>' +
+        '<div><div class="leader-row__name">' + esc(p.name) + '</div>' +
+          '<div class="leader-row__sku">' + esc(p.sku || '') + '</div></div>' +
+        '<div class="leader-row__units">' + num(p.units) + ' units</div>' +
+        '<div class="leader-row__rev">' + gbp(p.revenue, 2) + '</div>' +
+        '<div class="leader-row__orders">' + p.orders + ' orders</div>' +
+      '</div>';
+    }).join('');
+
+    // Also render product cards if on products page
+    if (state.metrics) renderProductCards(state.metrics);
+    if (!state.chartsBuilt.products) buildProductChart();
+  }
+
+  var productChartInst = null;
+  function buildProductChart() {
+    if (!state.orders) return;
+    var lb = state.orders.productLeaderboard || [];
+    if (!lb.length) return;
+    state.chartsBuilt.products = true;
+    var ctx = document.getElementById('productChart');
+    if (!ctx) return;
+    if (productChartInst) productChartInst.destroy();
+    productChartInst = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: lb.map(function(p){ return p.name.replace('Hepple ',''); }),
+        datasets: [{
+          label: 'Units sold',
+          data: lb.map(function(p){ return p.units; }),
+          backgroundColor: ['rgba(163,196,188,.6)', 'rgba(201,185,154,.5)', 'rgba(91,141,238,.45)'],
+          borderRadius: 4,
+        }]
+      },
+      options: chartDefaults('', true)
+    });
   }
 
   // ============================================================
   //  FULFILMENT
   // ============================================================
-  function summarise(orders) {
-    var fulfilled = orders.filter(function (o) { return o.fulfilled; }).length;
-    var outstanding = orders.length - fulfilled;
-    var outstandingValue = orders.filter(function (o) { return !o.fulfilled; })
-      .reduce(function (s, o) { return s + (Number(o.total) || 0); }, 0);
-    return { total: orders.length, fulfilled: fulfilled, outstanding: outstanding, outstandingValue: outstandingValue };
-  }
-  function renderFulfil(sum) {
-    var pct = sum.total ? Math.round((sum.fulfilled / sum.total) * 100) : 0;
-    $('#fulfilFill').style.width = pct + '%';
-    $('#fulDone').textContent = num(sum.fulfilled);
-    $('#fulOpen').textContent = num(sum.outstanding);
-    $('#fulVal').textContent = money(sum.outstandingValue, 0);
-    var hint = $('#fulSummaryHint');
-    if (hint) hint.textContent = pct + '% dispatched';
-  }
+  function renderFulfilment() {
+    if (!state.orders) return;
+    var orders = state.orders.orders || [];
+    var summary = state.orders.summary || {};
 
-  // ============================================================
-  //  ORDERS TABLE
-  // ============================================================
-  function renderOrders() {
-    var body = $('#ordersBody'); if (!body) return;
-    var list = state.orders.filter(function (o) {
-      if (state.filter === 'fulfilled') return o.fulfilled;
-      if (state.filter === 'outstanding') return !o.fulfilled;
-      return true;
-    });
-    if (!list.length) { body.innerHTML = '<tr><td colspan="7" class="otable__empty">No orders in this view.</td></tr>'; return; }
-    body.innerHTML = list.map(function (o) {
-      var ref = (o.stripe_session_id || '').replace(/^cs_(test_|live_|demo_)?/, '').slice(0, 10) || '—';
-      var items = o.cart_summary || (o.items || []).map(function (i) { return i.qty + '× ' + (i.name || i.slug); }).join(', ');
-      var status = o.fulfilled
-        ? '<span class="pill pill--done">Fulfilled</span>'
-        : '<span class="pill pill--open">Outstanding</span>';
-      var action = o.fulfilled
-        ? '<button class="fbtn fbtn--undo" data-id="' + esc(o.stripe_session_id) + '" data-to="0">Mark unsent</button>'
-        : '<button class="fbtn" data-id="' + esc(o.stripe_session_id) + '" data-to="1">Mark fulfilled</button>';
-      return '<tr>' +
-        '<td><span class="otable__order">#' + esc(ref) + '</span></td>' +
-        '<td>' + esc(o.customer_name || '—') + '<span class="otable__sub">' + esc(o.customer_email || '') + '</span></td>' +
-        '<td class="otable__items">' + esc(items) + '</td>' +
-        '<td class="num">' + money(o.total, 2) + '</td>' +
-        '<td>' + shortDate(o.created_at) + '</td>' +
-        '<td>' + status + '</td>' +
-        '<td class="act">' + action + '</td>' +
-        '</tr>';
+    document.getElementById('fulOpen').textContent = num(summary.outstanding || 0);
+    document.getElementById('fulDone').textContent = num(summary.fulfilled || 0);
+    document.getElementById('fulVal').textContent = gbp(summary.outstandingValue || 0, 2);
+
+    var total = summary.total || 1;
+    var pct = Math.round(((summary.fulfilled || 0) / total) * 100);
+    document.getElementById('fulFill').style.width = pct + '%';
+
+    // Outstanding only
+    var outstanding = orders.filter(function(o){ return !o.fulfilled; });
+    var el = document.getElementById('fulfilList');
+    if (!outstanding.length) {
+      el.innerHTML = '<p class="empty-state">All orders fulfilled 🎉</p>';
+      return;
+    }
+    el.innerHTML = outstanding.map(function(o) {
+      var addr = o.shipping_address || {};
+      var addrStr = [addr.city, addr.postal_code].filter(Boolean).join(', ');
+      var items = o.items && o.items.length
+        ? o.items.map(function(it){ return it.qty + '× ' + it.name.replace('Hepple ',''); }).join(', ')
+        : (o.cart_summary || '—');
+      return '<div class="fulfil-card">' +
+        '<div class="fulfil-card__info">' +
+          '<div class="fulfil-card__name">' + esc(o.customer_name || 'Unknown') + '</div>' +
+          '<div class="fulfil-card__email">' + esc(o.customer_email || '') + '</div>' +
+          (addrStr ? '<div class="fulfil-card__addr">📍 ' + esc(addrStr) + '</div>' : '') +
+        '</div>' +
+        '<div class="fulfil-card__items">' + esc(items) + '</div>' +
+        '<div class="fulfil-card__total">' + gbp(o.total, 2) + '</div>' +
+        '<div class="fulfil-card__date">' + shortDate(o.created_at) + '</div>' +
+        '<button class="fulfil-card__btn" data-id="' + esc(o.stripe_session_id) + '">Mark fulfilled</button>' +
+      '</div>';
     }).join('');
-    $$('#ordersBody .fbtn').forEach(function (btn) {
-      btn.addEventListener('click', function () { toggleFulfil(btn); });
-    });
-  }
 
-  function toggleFulfil(btn) {
-    var id = btn.getAttribute('data-id');
-    var to = btn.getAttribute('data-to') === '1';
-    btn.disabled = true; btn.textContent = '…';
-    getJSON('/api/fulfill', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stripe_session_id: id, fulfilled: to }),
-    }).then(function (resp) {
-      // optimistic update on success OR demo acknowledgement
-      var ok = resp && (resp.updated || resp.demo || resp.order);
-      if (ok) {
-        state.orders.forEach(function (o) {
-          if (o.stripe_session_id === id) {
-            o.fulfilled = to;
-            o.fulfilled_at = to ? new Date().toISOString() : null;
-          }
-        });
-        renderFulfil(summarise(state.orders));
-        renderOrders();
-      } else {
-        btn.disabled = false; btn.textContent = to ? 'Mark fulfilled' : 'Mark unsent';
-      }
+    el.querySelectorAll('.fulfil-card__btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var id = btn.dataset.id;
+        var order = orders.find(function(o){ return o.stripe_session_id === id; });
+        if (order) toggleFulfil(order, true, btn);
+      });
     });
   }
 
   // ============================================================
-  //  CUSTOMERS (derived from orders — works in every mode)
+  //  TRAFFIC
   // ============================================================
-  function renderCustomers(orders) {
-    var body = $('#custBody'); if (!body) return;
-    var map = {};
-    orders.forEach(function (o) {
-      var key = (o.customer_email || o.customer_name || 'unknown').toLowerCase();
-      if (!map[key]) map[key] = { name: o.customer_name || '—', email: o.customer_email || '', orders: 0, spent: 0, last: null };
-      map[key].orders += 1;
-      map[key].spent += Number(o.total) || 0;
-      if (!map[key].last || new Date(o.created_at) > new Date(map[key].last)) map[key].last = o.created_at;
-    });
-    var rows = Object.keys(map).map(function (k) { return map[k]; })
-      .sort(function (a, b) { return b.spent - a.spent; }).slice(0, 8);
-    if (!rows.length) { body.innerHTML = '<tr><td colspan="5" class="otable__empty">No customers yet.</td></tr>'; return; }
-    body.innerHTML = rows.map(function (c) {
-      return '<tr>' +
-        '<td><b>' + esc(c.name) + '</b></td>' +
-        '<td>' + esc(c.email) + '</td>' +
-        '<td class="num">' + num(c.orders) + '</td>' +
-        '<td class="num">' + money(c.spent, 2) + '</td>' +
-        '<td>' + shortDate(c.last) + '</td>' +
-        '</tr>';
+  function renderTrafficKPIs(a) {
+    var el = document.getElementById('trafficKpis');
+    if (!el) return;
+    var stats = [
+      { label: 'Pageviews',    val: num(a.pageviews || 0) },
+      { label: 'Unique visitors', val: num(a.uniqueVisitors || 0) },
+      { label: 'Conversion',   val: (a.conversionRate || 0) + '%' },
+      { label: 'Abandoned carts', val: num(a.abandonedCarts || 0) },
+    ];
+    el.innerHTML = stats.map(function(s) {
+      return '<div class="traffic-kpi"><div class="traffic-kpi__label">' + esc(s.label) +
+        '</div><div class="traffic-kpi__val">' + esc(s.val) + '</div></div>';
     }).join('');
   }
 
-  // ============================================================
-  //  FUNNEL / PAGES / SOURCES / ABANDON
-  // ============================================================
+  var visitorsChartInst = null;
+  function buildTrafficChart() {
+    if (!state.analytics) return;
+    state.chartsBuilt.traffic = true;
+    var dv = state.analytics.dailyVisitors || [];
+    var ctx = document.getElementById('visitorsChart');
+    if (!ctx) return;
+    if (visitorsChartInst) visitorsChartInst.destroy();
+    visitorsChartInst = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: dv.map(function(d){ return d.date ? d.date.slice(5) : ''; }),
+        datasets: [{
+          label: 'Visitors',
+          data: dv.map(function(d){ return d.visitors || 0; }),
+          borderColor: 'rgba(91,141,238,.9)',
+          backgroundColor: 'rgba(91,141,238,.08)',
+          fill: true, tension: 0.4, pointRadius: 2,
+          pointBackgroundColor: 'rgba(91,141,238,.9)',
+        }]
+      },
+      options: chartDefaults('', false)
+    });
+  }
+
   function renderFunnel(a) {
-    var ul = $('#funnel'); if (!ul) return;
-    var f = a.funnel || [];
-    if (!f.length) { ul.innerHTML = '<li class="funnel__empty">No funnel data.</li>'; return; }
-    var top = f[0].count || 1;
-    ul.innerHTML = f.map(function (s, i) {
-      var pct = Math.round((s.count / top) * 100);
-      var stepPct = i === 0 ? 100 : Math.round((s.count / (f[i - 1].count || 1)) * 100);
-      return '<li class="funnel__row">' +
-        '<div class="funnel__top"><span class="funnel__step">' + esc(s.step) + '</span>' +
-        '<span class="funnel__n">' + num(s.count) + '</span></div>' +
-        '<div class="funnel__track"><i style="width:' + Math.max(pct, 2) + '%"></i></div>' +
-        (i > 0 ? '<span class="funnel__pct">' + stepPct + '% of previous step</span>' : '') +
-        '</li>';
+    var el = document.getElementById('funnelList');
+    if (!el || !a) return;
+    var funnel = a.funnel || [];
+    var max = funnel.length ? funnel[0].count || 1 : 1;
+    el.innerHTML = funnel.map(function(step, i) {
+      var pct = max ? Math.round(step.count / max * 100) : 0;
+      var cvr = i > 0 && funnel[i-1].count ? Math.round(step.count / funnel[i-1].count * 100) : null;
+      return '<div class="funnel-step">' +
+        '<div class="funnel-step__header">' +
+          '<span class="funnel-step__name">' + esc(step.step) + '</span>' +
+          '<span><span class="funnel-step__count">' + num(step.count) + '</span>' +
+            (cvr !== null ? '<span class="funnel-step__pct">(' + cvr + '%)</span>' : '') +
+          '</span>' +
+        '</div>' +
+        '<div class="funnel-step__bar-bg"><div class="funnel-step__bar" style="width:' + pct + '%"></div></div>' +
+      '</div>';
     }).join('');
   }
 
   function renderTopPages(a) {
-    var ul = $('#topPages'); if (!ul) return;
-    var rows = a.topPages || [];
-    if (!rows.length) { ul.innerHTML = '<li class="barlist__empty">No page data.</li>'; return; }
-    var max = Math.max.apply(null, rows.map(function (r) { return r.views; }).concat([1]));
-    ul.innerHTML = rows.map(function (r) {
-      var pct = Math.round((r.views / max) * 100);
-      return '<li class="barlist__row">' +
-        '<div class="barlist__top"><span class="barlist__label">' + esc(r.path || '/') + '</span>' +
-        '<span class="barlist__val">' + num(r.views) + '</span></div>' +
-        '<div class="barlist__track"><i style="width:' + Math.max(pct, 3) + '%"></i></div></li>';
+    var el = document.getElementById('topPagesList');
+    if (!el || !a) return;
+    var pages = a.topPages || [];
+    var max = pages.length ? pages[0].views || 1 : 1;
+    el.innerHTML = pages.map(function(p) {
+      var pct = Math.round(p.views / max * 100);
+      return '<div class="bar-item">' +
+        '<div class="bar-item__header">' +
+          '<span class="bar-item__name">' + esc(p.path || '/') + '</span>' +
+          '<span class="bar-item__count">' + num(p.views) + '</span>' +
+        '</div>' +
+        '<div class="bar-item__bar-bg"><div class="bar-item__bar" style="width:' + pct + '%"></div></div>' +
+      '</div>';
     }).join('');
   }
 
   function renderSources(a) {
-    var ul = $('#sources'); if (!ul) return;
-    var rows = (a.sources || []).map(function (s) {
-      return { label: s.source, val: (s.sessions != null ? s.sessions : s.visitors) || 0 };
-    });
-    if (!rows.length) { ul.innerHTML = '<li class="barlist__empty">No source data.</li>'; return; }
-    var max = Math.max.apply(null, rows.map(function (r) { return r.val; }).concat([1]));
-    ul.innerHTML = rows.map(function (r) {
-      var pct = Math.round((r.val / max) * 100);
-      return '<li class="barlist__row">' +
-        '<div class="barlist__top"><span class="barlist__label">' + esc(r.label) + '</span>' +
-        '<span class="barlist__val">' + num(r.val) + '</span></div>' +
-        '<div class="barlist__track"><i style="width:' + Math.max(pct, 3) + '%"></i></div></li>';
+    var el = document.getElementById('sourcesList');
+    if (!el || !a) return;
+    var sources = a.sources || [];
+    var max = sources.length ? sources[0].visitors || 1 : 1;
+    el.innerHTML = sources.map(function(s) {
+      var pct = Math.round(s.visitors / max * 100);
+      return '<div class="bar-item">' +
+        '<div class="bar-item__header">' +
+          '<span class="bar-item__name">' + esc(s.source) + '</span>' +
+          '<span class="bar-item__count">' + num(s.visitors) + '</span>' +
+        '</div>' +
+        '<div class="bar-item__bar-bg"><div class="bar-item__bar" style="width:' + pct + '%"></div></div>' +
+      '</div>';
     }).join('');
   }
 
-  function renderAbandon(a) {
-    var box = $('#abandon'); if (!box) return;
-    if (a.abandonedCarts == null) return;
-    box.hidden = false;
-    $('#abandonN').textContent = num(a.abandonedCarts);
-    var v = $('#abandonV');
-    if (v) v.textContent = a.abandonedValue != null ? money(a.abandonedValue, 0) + ' in lost baskets' : '';
+  // ============================================================
+  //  CUSTOMERS
+  // ============================================================
+  function renderCustomers() {
+    var el = document.getElementById('custList');
+    if (!el || !state.orders) return;
+    var orders = state.orders.orders || [];
+    var map = new Map();
+    orders.forEach(function(o) {
+      var k = o.customer_email;
+      if (!k) return;
+      var cur = map.get(k) || { email: k, name: o.customer_name, orders: 0, spent: 0, last: o.created_at };
+      cur.orders += 1; cur.spent += o.total;
+      if (o.created_at > cur.last) cur.last = o.created_at;
+      map.set(k, cur);
+    });
+    var custs = Array.from(map.values())
+      .map(function(c){ return Object.assign({}, c, { spent: +c.spent.toFixed(2) }); })
+      .sort(function(a, b){ return b.spent - a.spent })
+      .slice(0, 20);
+
+    if (!custs.length) { el.innerHTML = '<p class="empty-state">No customer data yet.</p>'; return; }
+    el.innerHTML = custs.map(function(c, i) {
+      var rankCls = i === 0 ? 'cust-card__rank--gold' : '';
+      return '<div class="cust-card">' +
+        '<div class="cust-card__rank ' + rankCls + '">' + (i + 1) + '</div>' +
+        '<div><div class="cust-card__name">' + esc(c.name || 'Unknown') + '</div>' +
+          '<div class="cust-card__email">' + esc(c.email) + '</div></div>' +
+        '<div class="cust-card__orders"><div>' + c.orders + '</div><div class="cust-card__orders-label">orders</div></div>' +
+        '<div class="cust-card__spent">' + gbp(c.spent, 2) + '</div>' +
+        '<div class="cust-card__last">' + timeAgo(c.last) + '</div>' +
+      '</div>';
+    }).join('');
   }
 
-  // ---- segmented filter ----
-  $$('.seg__btn').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      $$('.seg__btn').forEach(function (b) { b.classList.remove('is-active'); b.setAttribute('aria-selected', 'false'); });
-      btn.classList.add('is-active'); btn.setAttribute('aria-selected', 'true');
-      state.filter = btn.getAttribute('data-filter');
-      renderOrders();
-    });
-  });
+  // ============================================================
+  //  CHART DEFAULTS
+  // ============================================================
+  function chartDefaults(prefix, integers) {
+    return {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1c2029',
+          borderColor: '#272c38',
+          borderWidth: 1,
+          titleColor: '#8b92a8',
+          bodyColor: '#e8eaf0',
+          callbacks: {
+            label: function(ctx) {
+              var v = ctx.parsed.y;
+              if (prefix === '£') return ' ' + gbp(v, 2);
+              return ' ' + (integers ? Math.round(v) : v);
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(39,44,56,.6)', drawTicks: false },
+          ticks: { color: '#565e78', font: { family: 'DM Mono', size: 11 }, maxRotation: 0 },
+          border: { display: false }
+        },
+        y: {
+          grid: { color: 'rgba(39,44,56,.6)', drawTicks: false },
+          ticks: {
+            color: '#565e78', font: { family: 'DM Mono', size: 11 },
+            callback: function(v) {
+              if (prefix === '£') return v >= 1000 ? '£' + (v/1000).toFixed(1) + 'k' : '£' + v;
+              return integers ? Math.round(v) : v;
+            }
+          },
+          border: { display: false }
+        }
+      }
+    };
+  }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-  else boot();
+  // ---- kickoff ----
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+
 })();

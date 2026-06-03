@@ -1,18 +1,13 @@
 // ============================================================
-//  PORTAL — shared DEMO data
-//  When live env vars (Stripe / Supabase / PostHog) are absent,
-//  every endpoint falls back to this module so the dashboard
-//  renders a rich, internally-consistent picture. All figures
-//  are deterministic (seeded) so reloads look stable.
+//  PORTAL — shared DEMO data  (updated: window-aware)
 // ============================================================
 
 const PRODUCTS = [
-  { slug: 'hepple-wild-juniper-gin', name: 'Hepple Wild Juniper Gin', price: 39.95, sku: 'HEP-GIN-70' },
+  { slug: 'hepple-wild-juniper-gin',  name: 'Hepple Wild Juniper Gin',  price: 39.95, sku: 'HEP-GIN-70' },
   { slug: 'hepple-douglas-fir-vodka', name: 'Hepple Douglas Fir Vodka', price: 39.95, sku: 'HEP-DFV-70' },
-  { slug: 'hepple-moorland-vodka',   name: 'Hepple Wheat Vodka',       price: 34.95, sku: 'HEP-WHV-70' },
+  { slug: 'hepple-moorland-vodka',    name: 'Hepple Wheat Vodka',       price: 34.95, sku: 'HEP-WHV-70' },
 ];
 
-// Tiny seeded PRNG (mulberry32) — deterministic demo numbers.
 function rng(seed) {
   let a = seed >>> 0;
   return function () {
@@ -29,25 +24,21 @@ const FIRST = ['Imogen','Callum','Fiona','Hamish','Niamh','Rory','Eilidh','Strua
 const LAST = ['MacLeod','Fraser','Sinclair','Buchanan','Ferguson','Campbell','Hepburn','Armstrong',
   'Kerr','Cunningham','Robertson','Galbraith','Wallace','Murray','Forsyth','Drummond','Crawford',
   'Bruce','Aitken','Lindsay','Maxwell','Tennant','Ogilvie','Rennie'];
+const STREETS = ['High St','Mill Wynd','Castle Row','Harbour Rd','Glebe Pl','Church Lane','Bridge St','Kirk Brae'];
+const CITIES = ['Edinburgh','Glasgow','Morpeth','Hexham','Newcastle','Berwick','Alnwick','London','Bristol','Leeds'];
+const POSTCODES = ['EH1 2AA','G1 1AA','NE61 1AA','NE46 3AA','NE1 7AA','TD15 1AA','NE66 1AA','EC1A 1BB','BS1 1AA','LS1 1AA'];
 
-function pad(n) { return n < 10 ? '0' + n : '' + n; }
-
-// Build a deterministic set of ~140 orders across the last 90 days.
-function buildOrders() {
+function buildOrders(maxDays) {
   const rand = rng(20260518);
   const orders = [];
   const now = Date.now();
   const DAY = 86400000;
-  const total = 142;
+  const total = Math.min(400, Math.round(maxDays * 1.6));
 
   for (let i = 0; i < total; i++) {
-    // Weight orders toward recent days, with weekend lifts.
-    const daysAgo = Math.floor(Math.pow(rand(), 1.6) * 90);
+    const daysAgo = Math.floor(Math.pow(rand(), 1.4) * maxDays);
+    if (daysAgo >= maxDays) continue;
     const d = new Date(now - daysAgo * DAY);
-    const dow = d.getDay();
-    if ((dow === 0 || dow === 6) && rand() < 0.35) continue; // light weekend trim
-
-    // 1–3 line items.
     const lineCount = 1 + (rand() < 0.55 ? 0 : rand() < 0.85 ? 1 : 2);
     const items = [];
     let subtotal = 0;
@@ -61,16 +52,13 @@ function buildOrders() {
       subtotal += p.price * qty;
     }
     if (!items.length) continue;
-
     const shipping = subtotal >= 45 ? 0 : 4.95;
     const totalAmt = +(subtotal + shipping).toFixed(2);
     const fn = FIRST[Math.floor(rand() * FIRST.length)];
     const ln = LAST[Math.floor(rand() * LAST.length)];
     const email = `${fn}.${ln}`.toLowerCase() + '@' + (rand() < 0.5 ? 'gmail.com' : rand() < 0.7 ? 'outlook.com' : 'btinternet.com');
-
-    // Older orders mostly fulfilled; recent ones often outstanding.
+    const cityIdx = Math.floor(rand() * CITIES.length);
     const fulfilled = daysAgo > 4 ? rand() < 0.93 : rand() < 0.25;
-
     orders.push({
       id: i + 1,
       stripe_session_id: 'cs_demo_' + (100000 + i),
@@ -83,11 +71,11 @@ function buildOrders() {
       total: totalAmt,
       item_count: items.reduce((s, it) => s + it.qty, 0),
       items,
-      cart_summary: items.map(it => `${it.qty}x ${it.sku}`).join(', '),
+      cart_summary: items.map(it => `${it.qty}× ${it.sku}`).join(', '),
       shipping_address: {
-        line1: (1 + Math.floor(rand() * 80)) + ' ' + ['High St','Mill Wynd','Castle Row','Harbour Rd','Glebe Pl'][Math.floor(rand() * 5)],
-        city: ['Edinburgh','Glasgow','Morpeth','Hexham','Newcastle','Berwick','Alnwick'][Math.floor(rand() * 7)],
-        postal_code: ['EH1','G1','NE61','NE46','NE1','TD15','NE66'][Math.floor(rand() * 7)] + ' ' + (1 + Math.floor(rand() * 9)) + 'AA',
+        line1: (1 + Math.floor(rand() * 80)) + ' ' + STREETS[Math.floor(rand() * STREETS.length)],
+        city: CITIES[cityIdx],
+        postal_code: POSTCODES[cityIdx],
         country: 'GB',
       },
       payment_status: 'paid',
@@ -96,39 +84,49 @@ function buildOrders() {
       created_at: d.toISOString(),
     });
   }
-
   orders.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   return orders;
 }
 
-const ORDERS = buildOrders();
+// Cache built orders so repeated calls are fast
+const _orderCache = new Map();
+function ordersForWindow(days) {
+  if (!_orderCache.has(days)) _orderCache.set(days, buildOrders(days));
+  return _orderCache.get(days);
+}
 
-// ---- Derived metrics (kept consistent with ORDERS) ---------
-function metrics() {
-  const revenue = ORDERS.reduce((s, o) => s + o.total, 0);
-  const customers = new Set(ORDERS.map(o => o.customer_email)).size;
-  const orderCount = ORDERS.length;
+const ORDERS = ordersForWindow(180);
+
+function metrics(windowDays) {
+  const orders = ordersForWindow(windowDays || 90);
+  const revenue = orders.reduce((s, o) => s + o.total, 0);
+  const customerSet = new Set(orders.map(o => o.customer_email));
+  const orderCount = orders.length;
   const aov = orderCount ? revenue / orderCount : 0;
-  const units = ORDERS.reduce((s, o) => s + o.item_count, 0);
+  const units = orders.reduce((s, o) => s + o.item_count, 0);
 
-  // Daily revenue series for the last 30 days.
   const DAY = 86400000;
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const days = [];
+  const daily = [];
   for (let i = 29; i >= 0; i--) {
-    const day = new Date(today.getTime() - i * DAY);
-    const key = day.toISOString().slice(0, 10);
-    const dayRev = ORDERS
-      .filter(o => o.created_at.slice(0, 10) === key)
-      .reduce((s, o) => s + o.total, 0);
-    const dayOrders = ORDERS.filter(o => o.created_at.slice(0, 10) === key).length;
-    days.push({ date: key, revenue: +dayRev.toFixed(2), orders: dayOrders });
+    const k = new Date(today.getTime() - i * DAY).toISOString().slice(0, 10);
+    const dayRev = orders.filter(o => o.created_at.slice(0, 10) === k).reduce((s, o) => s + o.total, 0);
+    const dayOrders = orders.filter(o => o.created_at.slice(0, 10) === k).length;
+    daily.push({ date: k, revenue: +dayRev.toFixed(2), orders: dayOrders });
   }
 
-  // Per-product unit + revenue split.
+  const monthly = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i); d.setHours(0,0,0,0);
+    const mk = d.toISOString().slice(0, 7);
+    let rev = 0, ord = 0;
+    orders.forEach(o => { if (o.created_at.startsWith(mk)) { rev += o.total; ord++; } });
+    monthly.push({ month: mk, revenue: +rev.toFixed(2), orders: ord });
+  }
+
   const byProduct = PRODUCTS.map(p => {
     let u = 0, r = 0;
-    ORDERS.forEach(o => o.items.forEach(it => {
+    orders.forEach(o => o.items.forEach(it => {
       if (it.slug === p.slug) { u += it.qty; r += it.qty * it.price; }
     }));
     return { slug: p.slug, name: p.name, units: u, revenue: +r.toFixed(2) };
@@ -136,87 +134,66 @@ function metrics() {
 
   return {
     revenue: +revenue.toFixed(2),
-    net: +(revenue * 0.971 - orderCount * 0.20).toFixed(2), // approx after Stripe fees (1.5%+20p UK cards, blended)
-    orders: orderCount,
-    customers,
-    aov: +aov.toFixed(2),
-    units,
-    currency: 'gbp',
-    daily: days,
-    byProduct,
+    net: +(revenue * 0.971 - orderCount * 0.20).toFixed(2),
+    orders: orderCount, customers: customerSet.size,
+    aov: +aov.toFixed(2), units, currency: 'gbp',
+    daily, monthly, byProduct,
   };
 }
 
-// ---- Top customers -----------------------------------------
 function topCustomers() {
   const map = new Map();
   ORDERS.forEach(o => {
     const k = o.customer_email;
     const cur = map.get(k) || { email: k, name: o.customer_name, orders: 0, spent: 0, last: o.created_at };
-    cur.orders += 1;
-    cur.spent += o.total;
+    cur.orders += 1; cur.spent += o.total;
     if (o.created_at > cur.last) cur.last = o.created_at;
     map.set(k, cur);
   });
   return [...map.values()]
     .map(c => ({ ...c, spent: +c.spent.toFixed(2) }))
-    .sort((a, b) => b.spent - a.spent)
-    .slice(0, 8);
+    .sort((a, b) => b.spent - a.spent).slice(0, 10);
 }
 
-// ---- PostHog-style analytics -------------------------------
 function analytics() {
-  const m = metrics();
+  const m = metrics(90);
   const purchases = m.orders;
-  // Funnel sized to be internally plausible vs. orders.
   const pageviews = Math.round(purchases * 47);
-  const productViews = Math.round(purchases * 19);
-  const addToCart = Math.round(purchases * 4.3);
-  const checkoutStarted = Math.round(purchases * 1.9);
-
   const funnel = [
-    { step: 'Visited site', count: Math.round(purchases * 31) },
-    { step: 'Viewed product', count: productViews },
-    { step: 'Added to cart', count: addToCart },
-    { step: 'Started checkout', count: checkoutStarted },
-    { step: 'Purchased', count: purchases },
+    { step: 'Visited site',     count: Math.round(purchases * 31) },
+    { step: 'Viewed product',   count: Math.round(purchases * 19) },
+    { step: 'Added to cart',    count: Math.round(purchases * 4.3) },
+    { step: 'Started checkout', count: Math.round(purchases * 1.9) },
+    { step: 'Purchased',        count: purchases },
   ];
-
   const topPages = [
     { path: '/', views: Math.round(pageviews * 0.34) },
     { path: '/shop', views: Math.round(pageviews * 0.21) },
     { path: '/shop/hepple-wild-juniper-gin', views: Math.round(pageviews * 0.13) },
-    { path: '/story', views: Math.round(pageviews * 0.10) },
+    { path: '/our-story', views: Math.round(pageviews * 0.10) },
     { path: '/shop/hepple-douglas-fir-vodka', views: Math.round(pageviews * 0.08) },
     { path: '/cocktails', views: Math.round(pageviews * 0.07) },
     { path: '/visit', views: Math.round(pageviews * 0.04) },
   ];
-
   const sources = [
-    { source: 'Direct', sessions: Math.round(pageviews * 0.30 / 6) },
-    { source: 'Instagram', sessions: Math.round(pageviews * 0.26 / 6) },
-    { source: 'Google', sessions: Math.round(pageviews * 0.22 / 6) },
-    { source: 'Newsletter', sessions: Math.round(pageviews * 0.12 / 6) },
-    { source: 'Referral', sessions: Math.round(pageviews * 0.10 / 6) },
+    { source: 'Direct',    visitors: Math.round(pageviews * 0.30 / 6) },
+    { source: 'Instagram', visitors: Math.round(pageviews * 0.26 / 6) },
+    { source: 'Google',    visitors: Math.round(pageviews * 0.22 / 6) },
+    { source: 'Newsletter',visitors: Math.round(pageviews * 0.12 / 6) },
+    { source: 'Referral',  visitors: Math.round(pageviews * 0.10 / 6) },
   ];
-
-  const abandonedCarts = addToCart - purchases;
-  const abandonedValue = +(abandonedCarts * 41.6).toFixed(2);
-
+  const DAY = 86400000; const today = new Date(); today.setHours(0,0,0,0);
+  const dailyVisitors = Array.from({length:30},(_,i)=>({
+    date: new Date(today.getTime()-(29-i)*DAY).toISOString().slice(0,10),
+    visitors: Math.round(Math.round(purchases*31)/30 * (0.5 + Math.random()))
+  }));
   return {
-    pageviews,
-    uniqueVisitors: Math.round(pageviews / 4.2),
-    productViews,
-    addToCart,
-    checkoutStarted,
-    purchases,
+    pageviews, uniqueVisitors: Math.round(pageviews / 4.2),
     conversionRate: +((purchases / Math.round(purchases * 31)) * 100).toFixed(2),
-    abandonedCarts,
-    abandonedValue,
-    funnel,
-    topPages,
-    sources,
+    abandonedCarts: Math.round(purchases * 1.9) - purchases,
+    abandonedValue: +((Math.round(purchases * 1.9) - purchases) * 41.6).toFixed(2),
+    funnel, topPages, sources, dailyVisitors,
   };
 }
 
-module.exports = { PRODUCTS, ORDERS, metrics, topCustomers, analytics };
+module.exports = { PRODUCTS, ORDERS, ordersForWindow, metrics, topCustomers, analytics };

@@ -1,10 +1,12 @@
 // ============================================================
 //  GET /api/orders
 //  Returns orders with fulfilment status + summary counts.
-//  Priority: SUPABASE (has fulfilment) → STRIPE (read-only,
-//  fulfilled=false) → DEMO.
+//  Priority: SUPABASE → STRIPE → DEMO
+//  Query: ?days=N (default 180, max 730), ?limit=N (default 500)
 // ============================================================
 const demo = require('./_demo');
+
+const DAY = 86400000;
 
 function ok(res, body) {
   res.setHeader('Content-Type', 'application/json');
@@ -22,41 +24,67 @@ function summarise(orders) {
   return { total: orders.length, fulfilled, outstanding, outstandingValue };
 }
 
+function productLeaderboard(orders) {
+  const map = new Map();
+  orders.forEach(o => {
+    (o.items || []).forEach(it => {
+      const k = it.slug || it.name;
+      const cur = map.get(k) || { slug: it.slug, name: it.name, sku: it.sku || '', units: 0, revenue: 0, orders: 0 };
+      cur.units += it.qty || 1;
+      cur.revenue += (it.qty || 1) * (it.price || 0);
+      cur.orders += 1;
+      map.set(k, cur);
+    });
+  });
+  return [...map.values()]
+    .map(p => ({ ...p, revenue: +p.revenue.toFixed(2) }))
+    .sort((a, b) => b.units - a.units);
+}
+
 module.exports = async function handler(req, res) {
   const SUPA_URL = process.env.SUPABASE_URL;
   const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
+  const windowDays = Math.min(730, Math.max(7, parseInt(req.query && req.query.days, 10) || 180));
+  const limit = Math.min(1000, Math.max(50, parseInt(req.query && req.query.limit, 10) || 500));
 
-  // ---- SUPABASE (preferred — carries fulfilment state) ----
+  // ---- SUPABASE ----
   if (SUPA_URL && SUPA_KEY) {
     try {
-      const url = `${SUPA_URL.replace(/\/$/, '')}/rest/v1/orders?select=*&order=created_at.desc&limit=500`;
+      const since = new Date(Date.now() - windowDays * DAY).toISOString();
+      const url = `${SUPA_URL.replace(/\/$/, '')}/rest/v1/orders?select=*&order=created_at.desc&limit=${limit}&created_at=gte.${since}`;
       const r = await fetch(url, {
         headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` },
       });
       if (!r.ok) throw new Error('supabase ' + r.status);
       const orders = await r.json();
-      return ok(res, { demo: false, source: 'supabase', summary: summarise(orders), orders });
+      return ok(res, {
+        demo: false, source: 'supabase', windowDays,
+        summary: summarise(orders),
+        productLeaderboard: productLeaderboard(orders),
+        orders,
+      });
     } catch (err) {
-      // fall through to Stripe / demo
       if (!STRIPE_KEY) {
+        const fallback = demo.ordersForWindow(windowDays);
         return ok(res, { demo: true, source: 'demo', error: 'supabase_unavailable',
-          message: String(err && err.message || err),
-          summary: summarise(demo.ORDERS), orders: demo.ORDERS });
+          windowDays, summary: summarise(fallback),
+          productLeaderboard: productLeaderboard(fallback), orders: fallback });
       }
     }
   }
 
-  // ---- STRIPE (read-only mirror; no persisted fulfilment) -
+  // ---- STRIPE ----
   if (STRIPE_KEY) {
     try {
       const stripe = require('stripe')(STRIPE_KEY);
-      const since = Math.floor((Date.now() - 90 * 86400000) / 1000);
+      const since = Math.floor((Date.now() - windowDays * DAY) / 1000);
       const sessions = [];
       let starting_after;
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 20; i++) {
         const page = await stripe.checkout.sessions.list({
           created: { gte: since }, limit: 100,
+          expand: ['data.line_items'],
           ...(starting_after ? { starting_after } : {}),
         });
         sessions.push(...page.data);
@@ -65,33 +93,50 @@ module.exports = async function handler(req, res) {
       }
       const orders = sessions
         .filter(s => s.payment_status === 'paid')
-        .map(s => ({
-          stripe_session_id: s.id,
-          customer_email: s.customer_details?.email || null,
-          customer_name: s.customer_details?.name || null,
-          currency: s.currency || 'gbp',
-          total: (s.amount_total || 0) / 100,
-          subtotal: (s.amount_subtotal || 0) / 100,
-          item_count: null,
-          cart_summary: s.metadata?.cart || '',
-          payment_status: s.payment_status,
-          fulfilled: false, // Stripe alone can't track fulfilment — add Supabase for that
-          fulfilled_at: null,
-          created_at: new Date(s.created * 1000).toISOString(),
-          items: [],
-        }));
+        .map(s => {
+          const lineItems = (s.line_items && s.line_items.data) || [];
+          const items = lineItems.map(li => ({
+            slug: li.price?.product?.metadata?.slug || li.description || '',
+            name: li.description || '',
+            sku: li.price?.product?.metadata?.sku || '',
+            qty: li.quantity || 1,
+            price: (li.price?.unit_amount || 0) / 100,
+          }));
+          return {
+            stripe_session_id: s.id,
+            customer_email: s.customer_details?.email || null,
+            customer_name: s.customer_details?.name || null,
+            shipping_address: s.shipping_details?.address || s.customer_details?.address || null,
+            currency: s.currency || 'gbp',
+            total: (s.amount_total || 0) / 100,
+            subtotal: (s.amount_subtotal || 0) / 100,
+            shipping: ((s.amount_total || 0) - (s.amount_subtotal || 0)) / 100,
+            item_count: items.reduce((s, i) => s + i.qty, 0) || null,
+            items,
+            cart_summary: s.metadata?.cart || items.map(i => `${i.qty}× ${i.name}`).join(', '),
+            payment_status: s.payment_status,
+            fulfilled: false,
+            fulfilled_at: null,
+            created_at: new Date(s.created * 1000).toISOString(),
+          };
+        });
       return ok(res, {
-        demo: false, source: 'stripe',
-        note: 'Connect Supabase to persist fulfilment status.',
-        summary: summarise(orders), orders,
+        demo: false, source: 'stripe', windowDays,
+        note: 'Connect Supabase to track fulfilment status.',
+        summary: summarise(orders),
+        productLeaderboard: productLeaderboard(orders),
+        orders,
       });
     } catch (err) {
+      const fallback = demo.ordersForWindow(windowDays);
       return ok(res, { demo: true, source: 'demo', error: 'stripe_unavailable',
-        message: String(err && err.message || err),
-        summary: summarise(demo.ORDERS), orders: demo.ORDERS });
+        windowDays, summary: summarise(fallback),
+        productLeaderboard: productLeaderboard(fallback), orders: fallback });
     }
   }
 
-  // ---- DEMO ------------------------------------------------
-  return ok(res, { demo: true, source: 'demo', summary: summarise(demo.ORDERS), orders: demo.ORDERS });
+  // ---- DEMO ----
+  const fallback = demo.ordersForWindow(windowDays);
+  return ok(res, { demo: true, source: 'demo', windowDays,
+    summary: summarise(fallback), productLeaderboard: productLeaderboard(fallback), orders: fallback });
 };

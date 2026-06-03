@@ -1,16 +1,11 @@
 // ============================================================
 //  GET /api/analytics
 //  Behavioural analytics from PostHog (traffic, funnel, paths,
-//  sources, abandoned carts, conversion rate).
-//  DEMO mode when PostHog env vars are absent.
-//
-//  Live mode uses the PostHog Query API (HogQL):
-//    POST {host}/api/projects/{id}/query
-//    Authorization: Bearer <personal api key>
+//  sources). DEMO mode when PostHog env vars are absent.
+//  Uses PostHog Query API (HogQL).
 //  Env: POSTHOG_PERSONAL_API_KEY, POSTHOG_PROJECT_ID,
-//       POSTHOG_HOST (default https://eu.i.posthog.com)
+//       POSTHOG_HOST (default https://us.i.posthog.com)
 // ============================================================
-
 const demo = require('./_demo');
 
 function send(res, code, body) {
@@ -39,18 +34,16 @@ async function hogql(host, projectId, key, query) {
 module.exports = async function handler(req, res) {
   const KEY = process.env.POSTHOG_PERSONAL_API_KEY;
   const PID = process.env.POSTHOG_PROJECT_ID;
-  const HOST = process.env.POSTHOG_HOST || 'https://eu.i.posthog.com';
+  // Default to US cloud (corrected from EU)
+  const HOST = process.env.POSTHOG_HOST || 'https://us.i.posthog.com';
 
-  // ---- DEMO MODE -------------------------------------------
   if (!KEY || !PID) {
     return send(res, 200, { demo: true, source: 'demo', ...demo.analytics() });
   }
 
-  // ---- LIVE MODE -------------------------------------------
   try {
     const WINDOW = "timestamp > now() - INTERVAL 30 DAY";
 
-    // Funnel step counts (unique persons per event)
     const funnelRows = await hogql(HOST, PID, KEY, `
       SELECT event, count(DISTINCT person_id) AS people
       FROM events
@@ -68,32 +61,34 @@ module.exports = async function handler(req, res) {
       { step: 'Purchased',        count: fmap['purchase'] || 0 },
     ];
 
-    // Pageviews + unique visitors
     const pvRows = await hogql(HOST, PID, KEY, `
       SELECT count() AS pv, count(DISTINCT person_id) AS uv
-      FROM events
-      WHERE ${WINDOW} AND event = '$pageview'
+      FROM events WHERE ${WINDOW} AND event = '$pageview'
     `);
     const pageviews = Number(pvRows[0] && pvRows[0][0]) || 0;
     const uniqueVisitors = Number(pvRows[0] && pvRows[0][1]) || 0;
 
-    // Top pages
     const pageRows = await hogql(HOST, PID, KEY, `
       SELECT properties.$pathname AS path, count() AS views
-      FROM events
-      WHERE ${WINDOW} AND event = '$pageview'
+      FROM events WHERE ${WINDOW} AND event = '$pageview'
       GROUP BY path ORDER BY views DESC LIMIT 8
     `);
     const topPages = pageRows.map(r => ({ path: r[0] || '/', views: Number(r[1]) || 0 }));
 
-    // Traffic sources
     const srcRows = await hogql(HOST, PID, KEY, `
       SELECT coalesce(properties.$referring_domain, 'direct') AS src, count(DISTINCT person_id) AS people
-      FROM events
-      WHERE ${WINDOW} AND event = '$pageview'
+      FROM events WHERE ${WINDOW} AND event = '$pageview'
       GROUP BY src ORDER BY people DESC LIMIT 6
     `);
     const sources = srcRows.map(r => ({ source: r[0] || 'direct', visitors: Number(r[1]) || 0 }));
+
+    // Daily visitors for sparkline
+    const dailyRows = await hogql(HOST, PID, KEY, `
+      SELECT toDate(timestamp) AS day, count(DISTINCT person_id) AS uv
+      FROM events WHERE timestamp > now() - INTERVAL 30 DAY AND event = '$pageview'
+      GROUP BY day ORDER BY day ASC
+    `);
+    const dailyVisitors = dailyRows.map(r => ({ date: r[0], visitors: Number(r[1]) || 0 }));
 
     const started = fmap['checkout_started'] || 0;
     const purchased = fmap['purchase'] || 0;
@@ -101,22 +96,14 @@ module.exports = async function handler(req, res) {
     const conversionRate = uniqueVisitors ? +(purchased / uniqueVisitors * 100).toFixed(2) : 0;
 
     return send(res, 200, {
-      demo: false,
-      source: 'posthog',
-      pageviews,
-      uniqueVisitors,
-      conversionRate,
-      funnel,
-      topPages,
-      sources,
-      abandonedCarts,
-      abandonedValue: null, // requires joining cart value; shown from orders/demo
+      demo: false, source: 'posthog',
+      pageviews, uniqueVisitors, conversionRate,
+      funnel, topPages, sources, dailyVisitors,
+      abandonedCarts, abandonedValue: null,
     });
   } catch (err) {
-    // Degrade gracefully to demo so the dashboard still renders
     return send(res, 200, {
-      demo: true,
-      source: 'demo',
+      demo: true, source: 'demo',
       error: String(err && err.message || err),
       ...demo.analytics(),
     });
