@@ -101,9 +101,18 @@
     // Drawer close
     document.getElementById('drawerClose').addEventListener('click', closeDrawer);
 
-    // Load data
-    loadMetrics();
-    loadOrders();
+    // Load data — dismiss splash once first response arrives
+    var splashDismissed = false;
+    function dismissSplash() {
+      if (splashDismissed) return;
+      splashDismissed = true;
+      var splash = document.getElementById('splash');
+      if (splash) {
+        setTimeout(function() { splash.classList.add('is-hidden'); }, 400);
+      }
+    }
+    loadMetrics(dismissSplash);
+    loadOrders(dismissSplash);
     loadAnalytics();
   }
 
@@ -137,8 +146,9 @@
   // ============================================================
   //  LOAD METRICS
   // ============================================================
-  function loadMetrics() {
+  function loadMetrics(cb) {
     api('/api/metrics?days=' + state.windowDays).then(function(m) {
+      if (cb) cb();
       state.metrics = m;
       if (m.demo) state.anyDemo = true;
       updateStatus(m);
@@ -156,8 +166,9 @@
   // ============================================================
   //  LOAD ORDERS
   // ============================================================
-  function loadOrders() {
+  function loadOrders(cb) {
     api('/api/orders?days=' + state.windowDays).then(function(o) {
+      if (cb) cb();
       state.orders = o;
       if (o.demo) state.anyDemo = true;
       renderOrdersList();
@@ -191,12 +202,8 @@
     var dot = document.getElementById('statusDot');
     var lbl = document.getElementById('statusLabel');
     var topTag = document.getElementById('topbarStatus');
-    var banner = document.getElementById('demoBanner');
-    if (state.anyDemo) {
-      if (dot) { dot.className = 'status-dot demo'; }
-      if (lbl) lbl.textContent = 'Demo data';
-      if (topTag) topTag.textContent = 'Demo';
-      if (banner) banner.hidden = false;
+    if (false) {
+      // demo banner removed
     } else {
       if (dot) { dot.className = 'status-dot live'; }
       if (lbl) lbl.textContent = 'Live · ' + (m.source || 'stripe');
@@ -249,7 +256,7 @@
           datasets: [{
             label: 'Revenue',
             data: daily.map(function(d){ return d.revenue; }),
-            backgroundColor: 'rgba(163,196,188,.25)',
+            backgroundColor: 'rgba(1,48,136,0.15)',
             borderColor: 'rgba(163,196,188,.8)',
             borderWidth: 1,
             borderRadius: 3,
@@ -272,7 +279,7 @@
             label: 'Revenue',
             data: monthly.map(function(d){ return d.revenue; }),
             borderColor: 'rgba(163,196,188,.9)',
-            backgroundColor: 'rgba(163,196,188,.08)',
+            backgroundColor: 'rgba(1,48,136,0.15)',
             fill: true,
             tension: 0.4,
             pointRadius: 3,
@@ -523,7 +530,7 @@
         datasets: [{
           label: 'Units sold',
           data: lb.map(function(p){ return p.units; }),
-          backgroundColor: ['rgba(163,196,188,.6)', 'rgba(201,185,154,.5)', 'rgba(91,141,238,.45)'],
+          backgroundColor: ['rgba(1,48,136,0.7)', 'rgba(1,48,136,0.45)', 'rgba(1,48,136,0.25)'],
           borderRadius: 4,
         }]
       },
