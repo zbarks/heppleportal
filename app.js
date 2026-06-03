@@ -318,7 +318,7 @@
         ? '<span class="badge badge--done">Fulfilled</span>'
         : '<span class="badge badge--open">Outstanding</span>';
       var items = o.items && o.items.length
-        ? o.items.map(function(it){ return it.qty + '× ' + it.name.replace('Hepple ',''); }).join(', ')
+        ? o.items.map(function(it){ return it.qty + '× ' + ((it.name || '').replace('Hepple ','') || it.sku || 'Unknown item'); }).join(', ')
         : (o.cart_summary || '—');
       return '<div class="order-card" data-id="' + esc(o.stripe_session_id) + '">' +
         '<div>' +
@@ -519,7 +519,7 @@
     productChartInst = new Chart(ctx, {
       type: 'bar',
       data: {
-        labels: lb.map(function(p){ return p.name.replace('Hepple ',''); }),
+        labels: lb.map(function(p){ return ((p.name || '').replace('Hepple ','') || p.sku || 'Unknown'); }),
         datasets: [{
           label: 'Units sold',
           data: lb.map(function(p){ return p.units; }),
@@ -558,7 +558,7 @@
       var addr = o.shipping_address || {};
       var addrStr = [addr.city, addr.postal_code].filter(Boolean).join(', ');
       var items = o.items && o.items.length
-        ? o.items.map(function(it){ return it.qty + '× ' + it.name.replace('Hepple ',''); }).join(', ')
+        ? o.items.map(function(it){ return it.qty + '× ' + ((it.name || '').replace('Hepple ','') || it.sku || 'Unknown item'); }).join(', ')
         : (o.cart_summary || '—');
       return '<div class="fulfil-card">' +
         '<div class="fulfil-card__info">' +
