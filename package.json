@@ -1,0 +1,11 @@
+{
+  "name": "hepple-analytics-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sales, fulfilment and behavioural analytics portal for Hepple Spirits. Built by Barker Digital.",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "stripe": "^16.12.0"
+  }
+}

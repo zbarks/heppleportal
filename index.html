@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Hepple · Analytics Portal</title>
+<meta name="description" content="Sales, fulfilment and behavioural analytics for Hepple Spirits." />
+<link rel="preconnect" href="https://cdn.jsdelivr.net" />
+<link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+<!-- DEMO BANNER (shown by app.js when any feed returns demo:true) -->
+<div id="demoBanner" class="demo-banner" hidden>
+  <div class="demo-banner__inner">
+    <span class="demo-banner__dot" aria-hidden="true"></span>
+    <p class="demo-banner__text">
+      <strong>Demo data.</strong>
+      Showing realistic sample figures. Connect Stripe, Supabase &amp; PostHog to switch this portal to live data —
+      see the <code>README</code>.
+    </p>
+  </div>
+</div>
+
+<header class="masthead">
+  <div class="masthead__inner">
+    <div class="masthead__brand">
+      <img class="masthead__logo" src="./assets/brand/hepple-logotype-blue.png" alt="Hepple" />
+      <span class="masthead__divider" aria-hidden="true"></span>
+      <span class="masthead__title">Analytics&nbsp;Portal</span>
+    </div>
+    <div class="masthead__meta">
+      <span class="masthead__source" id="sourcePill" data-state="loading">Connecting…</span>
+      <span class="masthead__updated" id="lastUpdated"></span>
+    </div>
+  </div>
+  <div class="masthead__rule" aria-hidden="true"></div>
+</header>
+
+<main class="wrap">
+
+  <!-- ===== KPI ROW ===== -->
+  <section class="section" aria-labelledby="kpiHead">
+    <div class="section__head">
+      <span class="section__num">01</span>
+      <h2 class="section__title" id="kpiHead">Performance at a glance</h2>
+      <span class="section__hint" id="kpiWindow">Last 90 days</span>
+    </div>
+    <div class="kpis" id="kpis">
+      <!-- KPI cards injected -->
+      <div class="kpi kpi--skeleton" aria-hidden="true"></div>
+      <div class="kpi kpi--skeleton" aria-hidden="true"></div>
+      <div class="kpi kpi--skeleton" aria-hidden="true"></div>
+      <div class="kpi kpi--skeleton" aria-hidden="true"></div>
+      <div class="kpi kpi--skeleton" aria-hidden="true"></div>
+      <div class="kpi kpi--skeleton" aria-hidden="true"></div>
+    </div>
+  </section>
+
+  <!-- ===== REVENUE CHART + PRODUCT SPLIT ===== -->
+  <section class="section" aria-labelledby="revHead">
+    <div class="section__head">
+      <span class="section__num">02</span>
+      <h2 class="section__title" id="revHead">Revenue over time</h2>
+      <span class="section__hint">Daily, last 30 days</span>
+    </div>
+    <div class="grid grid--chart">
+      <div class="panel panel--chart">
+        <canvas id="revenueChart" height="280" aria-label="Daily revenue chart"></canvas>
+      </div>
+      <div class="panel panel--split">
+        <h3 class="panel__title">By product</h3>
+        <ul class="splitlist" id="productSplit"><li class="splitlist__empty">Loading…</li></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== FULFILMENT ===== -->
+  <section class="section" aria-labelledby="fulHead">
+    <div class="section__head">
+      <span class="section__num">03</span>
+      <h2 class="section__title" id="fulHead">Fulfilment</h2>
+      <span class="section__hint" id="fulSummaryHint"></span>
+    </div>
+    <div class="fulfil">
+      <div class="fulfil__bar" aria-hidden="true"><span id="fulfilFill" class="fulfil__fill" style="width:0%"></span></div>
+      <div class="fulfil__legend">
+        <span class="legend legend--done"><b id="fulDone">0</b> fulfilled</span>
+        <span class="legend legend--open"><b id="fulOpen">0</b> outstanding</span>
+        <span class="legend legend--val"><b id="fulVal">£0</b> awaiting dispatch</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== ORDERS TABLE ===== -->
+  <section class="section" aria-labelledby="ordHead">
+    <div class="section__head">
+      <span class="section__num">04</span>
+      <h2 class="section__title" id="ordHead">Orders</h2>
+      <div class="seg" role="tablist" aria-label="Filter orders">
+        <button class="seg__btn is-active" data-filter="all" role="tab" aria-selected="true">All</button>
+        <button class="seg__btn" data-filter="outstanding" role="tab" aria-selected="false">Outstanding</button>
+        <button class="seg__btn" data-filter="fulfilled" role="tab" aria-selected="false">Fulfilled</button>
+      </div>
+    </div>
+    <div class="tablewrap">
+      <table class="otable">
+        <thead>
+          <tr>
+            <th>Order</th><th>Customer</th><th>Items</th>
+            <th class="num">Total</th><th>Placed</th><th>Status</th><th class="act">Action</th>
+          </tr>
+        </thead>
+        <tbody id="ordersBody">
+          <tr><td colspan="7" class="otable__empty">Loading orders…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ===== TRAFFIC & FUNNEL ===== -->
+  <section class="section" aria-labelledby="trafHead">
+    <div class="section__head">
+      <span class="section__num">05</span>
+      <h2 class="section__title" id="trafHead">Traffic &amp; conversion</h2>
+      <span class="section__hint">PostHog · last 30 days</span>
+    </div>
+    <div class="grid grid--traffic">
+      <div class="panel">
+        <h3 class="panel__title">Conversion funnel</h3>
+        <ul class="funnel" id="funnel"><li class="funnel__empty">Loading…</li></ul>
+      </div>
+      <div class="panel">
+        <h3 class="panel__title">Top pages</h3>
+        <ul class="barlist" id="topPages"><li class="barlist__empty">Loading…</li></ul>
+      </div>
+      <div class="panel">
+        <h3 class="panel__title">Where visitors come from</h3>
+        <ul class="barlist" id="sources"><li class="barlist__empty">Loading…</li></ul>
+        <div class="abandon" id="abandon" hidden>
+          <span class="abandon__n" id="abandonN">0</span>
+          <span class="abandon__l">carts abandoned<br /><em id="abandonV"></em></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== TOP CUSTOMERS ===== -->
+  <section class="section" aria-labelledby="custHead">
+    <div class="section__head">
+      <span class="section__num">06</span>
+      <h2 class="section__title" id="custHead">Top customers</h2>
+      <span class="section__hint">By total spend</span>
+    </div>
+    <div class="tablewrap">
+      <table class="otable otable--cust">
+        <thead>
+          <tr><th>Customer</th><th>Email</th><th class="num">Orders</th><th class="num">Spent</th><th>Last order</th></tr>
+        </thead>
+        <tbody id="custBody">
+          <tr><td colspan="5" class="otable__empty">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footo">
+  <div class="footo__inner">
+    <div class="footo__by">
+      <span class="footo__bylabel">Built &amp; maintained by</span>
+      <span class="footo__brand">
+        <img class="footo__mark" src="./assets/brand/barker-digital-mark.svg" alt="" aria-hidden="true" />
+        <span class="footo__word">Barker&nbsp;Digital</span>
+      </span>
+    </div>
+    <p class="footo__note">Hepple Spirits analytics portal · figures refresh on load</p>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="./app.js" defer></script>
+</body>
+</html>

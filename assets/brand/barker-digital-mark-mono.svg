@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" role="img" aria-label="Barker Digital">
+  <g fill="currentColor">
+    <rect x="24" y="24" width="10" height="52" rx="5"/>
+    <rect x="66" y="24" width="10" height="52" rx="5"/>
+    <path d="M50 42a16 16 0 1 0 0 32 16 16 0 0 0 0-32zm0 10a6 6 0 1 1 0 12 6 6 0 0 1 0-12z"/>
+  </g>
+</svg>
