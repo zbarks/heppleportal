@@ -556,7 +556,8 @@
     }
     el.innerHTML = outstanding.map(function(o) {
       var addr = o.shipping_address || {};
-      var addrStr = [addr.city, addr.postal_code].filter(Boolean).join(', ');
+      var addrLines = [addr.line1, addr.line2, addr.city, addr.postal_code, addr.country]
+        .filter(Boolean).join(', ');
       var items = o.items && o.items.length
         ? o.items.map(function(it){ return it.qty + '× ' + ((it.name || '').replace('Hepple ','') || it.sku || 'Unknown item'); }).join(', ')
         : (o.cart_summary || '—');
@@ -564,7 +565,7 @@
         '<div class="fulfil-card__info">' +
           '<div class="fulfil-card__name">' + esc(o.customer_name || 'Unknown') + '</div>' +
           '<div class="fulfil-card__email">' + esc(o.customer_email || '') + '</div>' +
-          (addrStr ? '<div class="fulfil-card__addr">📍 ' + esc(addrStr) + '</div>' : '') +
+          (addrLines ? '<div class="fulfil-card__addr">📍 ' + esc(addrLines) + '</div>' : '<div class="fulfil-card__addr fulfil-card__addr--missing">⚠️ No shipping address</div>') +
         '</div>' +
         '<div class="fulfil-card__items">' + esc(items) + '</div>' +
         '<div class="fulfil-card__total">' + gbp(o.total, 2) + '</div>' +

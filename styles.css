@@ -677,3 +677,8 @@ body {
   .orders-toolbar { flex-direction: column; align-items: flex-start; }
   .order-search { width: 100%; }
 }
+
+.fulfil-card__addr--missing {
+  color: var(--warning, #c87f3a) !important;
+  font-weight: 600;
+}
