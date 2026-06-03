@@ -18,6 +18,43 @@ const SKU_MAP = {
 };
 
 /**
+ * Normalise a stored item regardless of which webhook version wrote it.
+ *
+ * Old webhook shape:  { quantity, description, amount_total }
+ * New webhook shape:  { qty, name, slug, sku, price }
+ *
+ * cart_summary SKU fallback: "1x HEP-GIN-70" → look up in SKU_MAP
+ */
+function normaliseItem(it) {
+  // Already new shape
+  if (it.name && it.qty != null) return it;
+
+  // Old shape — remap fields
+  const qty   = it.qty   || it.quantity  || 1;
+  const price = it.price != null ? it.price
+              : it.amount_total != null  ? +(it.amount_total / qty).toFixed(2)
+              : 0;
+
+  // Try to resolve name: description → SKU lookup
+  let name = it.name || it.description || null;
+  let slug = it.slug || '';
+  let sku  = it.sku  || '';
+
+  // If description looks like a SKU (e.g. "HEP-GIN-70"), look it up
+  if (name && SKU_MAP[name]) {
+    slug = slug || SKU_MAP[name].slug;
+    name = SKU_MAP[name].name;
+  }
+
+  // Derive slug from name if still missing
+  if (!slug && name) {
+    slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  }
+
+  return { name: name || 'Unknown item', slug, sku, qty, price };
+}
+
+/**
  * Resolve a product name from whatever Stripe gives us.
  * Priority: product.name → product.metadata.name → SKU lookup → description → slug → fallback
  */
@@ -83,8 +120,8 @@ function summarise(orders) {
 function productLeaderboard(orders) {
   const map = new Map();
   orders.forEach(o => {
-    (o.items || []).forEach(it => {
-      if (!it.name) return; // skip items with no resolvable name
+    (o.items || []).map(normaliseItem).forEach(it => {
+      if (!it.name || it.name === 'Unknown item') return;
       const k = it.slug || it.name;
       const cur = map.get(k) || { slug: it.slug || '', name: it.name, sku: it.sku || '', units: 0, revenue: 0, orders: 0 };
       cur.units += it.qty || 1;
@@ -115,7 +152,12 @@ module.exports = async function handler(req, res) {
         headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` },
       });
       if (!r.ok) throw new Error('supabase ' + r.status);
-      const orders = await r.json();
+      const rawOrders = await r.json();
+      // Normalise item shape — handles both old and new webhook formats
+      const orders = rawOrders.map(o => ({
+        ...o,
+        items: (o.items || []).map(normaliseItem),
+      }));
       return ok(res, {
         demo: false, source: 'supabase', windowDays,
         summary: summarise(orders),

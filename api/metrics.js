@@ -94,10 +94,15 @@ module.exports = async function handler(req, res) {
       byProduct: [],
     });
   } catch (err) {
+    // Log the error but return demo:false so a Stripe blip doesn't
+    // trigger the demo banner when Supabase orders are loading fine.
+    console.error('[metrics] stripe error:', err && err.message);
     return ok(res, {
-      demo: true, source: 'demo', windowDays,
+      demo: false, source: 'stripe_error', windowDays,
       error: String(err && err.message || err),
-      ...demo.metrics(windowDays),
+      revenue: 0, net: 0, refunded: 0,
+      orders: 0, customers: 0, aov: 0,
+      currency: 'gbp', daily: [], monthly: [], byProduct: [],
     });
   }
 };
