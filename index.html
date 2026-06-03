@@ -8,7 +8,11 @@
 <link rel="preconnect" href="https://cdn.jsdelivr.net" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<!-- FONTS: swap the typekit kit ID below for your Adobe Fonts kit that includes Proxima Nova -->
+<!-- Get kit ID from: https://fonts.adobe.com → My Fonts → Web Projects -->
+<link rel="stylesheet" href="https://use.typekit.net/YOURKITID.css" />
+<!-- Montserrat loads as fallback if the Adobe kit isn't set up yet -->
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Montserrat:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="./styles.css" />
 <link rel="icon" type="image/x-icon" href="./favicon.ico" />
 <link rel="icon" type="image/png" sizes="32x32" href="./assets/brand/favicon-portal-32.png" />
@@ -18,7 +22,7 @@
 <!-- ONBOARDING SPLASH -->
 <div id="splash" class="splash">
   <div class="splash__inner">
-    <img src="./assets/brand/hepple-logotype-blue.png" alt="Hepple Spirits Company" class="splash__hepple" />
+    <a href="https://hepplespirits.com" target="_blank" rel="noopener"><img src="./assets/brand/hepple-logotype-blue.png" alt="Hepple Spirits Company" class="splash__hepple" /></a>
     <p class="splash__label">Portal</p>
     <div class="splash__divider"></div>
     <img src="./assets/brand/barker-digital-logo.png" alt="Barker Digital" class="splash__bd" />
@@ -28,7 +32,7 @@
 <!-- SIDEBAR NAV -->
 <nav class="sidebar" id="sidebar">
   <div class="sidebar__brand">
-    <img src="./assets/brand/hepple-logotype-blue.png" alt="Hepple" class="sidebar__logo" />
+    <a href="https://hepplespirits.com" target="_blank" rel="noopener" class="sidebar__logo-link"><img src="./assets/brand/hepple-logotype-blue.png" alt="Hepple Spirits Company" class="sidebar__logo" /></a>
     <span class="sidebar__sub">Portal</span>
   </div>
   <ul class="sidebar__nav">
@@ -59,10 +63,12 @@
     <div class="sidebar__updated" id="lastUpdated"></div>
     <div class="sidebar__by">
       <!-- Swap barker-digital-logo.png for the real file when available -->
-      <img src="./assets/brand/barker-digital-logo.png" alt="Barker Digital"
-           class="sidebar__bylogo"
-           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
-      <span class="sidebar__byword" style="display:none">Barker Digital</span>
+      <a href="https://barkerdigital.co.uk" target="_blank" rel="noopener" class="sidebar__bylink">
+        <img src="./assets/brand/barker-digital-logo.png" alt="Barker Digital"
+             class="sidebar__bylogo"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+        <span class="sidebar__byword" style="display:none">Barker Digital</span>
+      </a>
     </div>
   </div>
 </nav>
@@ -72,7 +78,7 @@
   <button class="topbar__burger" id="menuBtn" aria-label="Open menu">
     <span></span><span></span><span></span>
   </button>
-  <img src="./assets/brand/hepple-logotype-blue.png" alt="Hepple" class="topbar__logo" />
+  <a href="https://hepplespirits.com" target="_blank" rel="noopener"><img src="./assets/brand/hepple-logotype-blue.png" alt="Hepple Spirits Company" class="topbar__logo" /></a>
   <span class="topbar__tag" id="topbarStatus">—</span>
 </header>
 

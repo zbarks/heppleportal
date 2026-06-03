@@ -220,11 +220,11 @@
     var a = state.analytics || {};
     var cards = [
       { label: 'Revenue', value: gbp(m.revenue, 0), sub: state.windowDays + 'd gross', cls: '' },
-      { label: 'Net (after fees)', value: gbp(m.net, 0), sub: 'est. after Stripe fees', cls: 'kpi-card--green' },
+      { label: 'Net (after fees)', value: gbp(m.net, 0), sub: 'est. after Stripe fees', cls: 'kpi-card--blue' },
       { label: 'Orders', value: num(m.orders), sub: gbp(m.aov, 2) + ' avg order', cls: '' },
       { label: 'Customers', value: num(m.customers), sub: 'unique buyers', cls: 'kpi-card--blue' },
       { label: 'Units sold', value: num(m.units), sub: 'across all products', cls: '' },
-      { label: 'Conversion', value: a.conversionRate != null ? a.conversionRate + '%' : '—', sub: 'visitor → purchase', cls: 'kpi-card--amber' },
+      { label: 'Conversion', value: a.conversionRate != null ? a.conversionRate + '%' : '—', sub: 'visitor → purchase', cls: '' },
     ];
     var html = cards.map(function(c) {
       return '<div class="kpi-card ' + c.cls + '">' +
@@ -256,8 +256,8 @@
           datasets: [{
             label: 'Revenue',
             data: daily.map(function(d){ return d.revenue; }),
-            backgroundColor: 'rgba(1,48,136,0.15)',
-            borderColor: 'rgba(163,196,188,.8)',
+            backgroundColor: 'rgba(1,48,136,0.08)',
+            borderColor: '#013088',
             borderWidth: 1,
             borderRadius: 3,
           }]
@@ -278,8 +278,8 @@
           datasets: [{
             label: 'Revenue',
             data: monthly.map(function(d){ return d.revenue; }),
-            borderColor: 'rgba(163,196,188,.9)',
-            backgroundColor: 'rgba(1,48,136,0.15)',
+            borderColor: '#013088',
+            backgroundColor: 'rgba(1,48,136,0.08)',
             fill: true,
             tension: 0.4,
             pointRadius: 3,
@@ -623,8 +623,8 @@
         datasets: [{
           label: 'Visitors',
           data: dv.map(function(d){ return d.visitors || 0; }),
-          borderColor: 'rgba(91,141,238,.9)',
-          backgroundColor: 'rgba(91,141,238,.08)',
+          borderColor: '#013088',
+          backgroundColor: 'rgba(1,48,136,0.06)',
           fill: true, tension: 0.4, pointRadius: 2,
           pointBackgroundColor: 'rgba(91,141,238,.9)',
         }]
@@ -732,11 +732,12 @@
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: '#1c2029',
-          borderColor: '#272c38',
+          backgroundColor: '#ffffff',
+          borderColor: '#e2dace',
           borderWidth: 1,
-          titleColor: '#8b92a8',
-          bodyColor: '#e8eaf0',
+          titleColor: '#4a4a6a',
+          bodyColor: '#1a1a2e',
+          padding: 10,
           callbacks: {
             label: function(ctx) {
               var v = ctx.parsed.y;
@@ -748,14 +749,14 @@
       },
       scales: {
         x: {
-          grid: { color: 'rgba(39,44,56,.6)', drawTicks: false },
-          ticks: { color: '#565e78', font: { family: 'DM Mono', size: 11 }, maxRotation: 0 },
+          grid: { color: 'rgba(0,0,0,0.06)', drawTicks: false },
+          ticks: { color: '#8888a8', font: { family: 'DM Mono', size: 11 }, maxRotation: 0 },
           border: { display: false }
         },
         y: {
-          grid: { color: 'rgba(39,44,56,.6)', drawTicks: false },
+          grid: { color: 'rgba(0,0,0,0.06)', drawTicks: false },
           ticks: {
-            color: '#565e78', font: { family: 'DM Mono', size: 11 },
+            color: '#8888a8', font: { family: 'DM Mono', size: 11 },
             callback: function(v) {
               if (prefix === '£') return v >= 1000 ? '£' + (v/1000).toFixed(1) + 'k' : '£' + v;
               return integers ? Math.round(v) : v;
