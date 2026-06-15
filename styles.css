@@ -225,6 +225,22 @@ body {
 .wp-btn:hover { color: var(--ink); background: var(--cream2); }
 .wp-btn.is-active { background: var(--accent); color: var(--cream); font-weight: 600; }
 
+/* custom date range */
+.window-picker { flex-wrap: wrap; }
+.wp-custom { display: flex; align-items: center; gap: 4px; padding-left: 4px; }
+.wp-date {
+  background: var(--cream2); border: 1px solid var(--cream3); border-radius: 4px;
+  padding: 4px 6px; font-family: var(--font-mono); font-size: 0.7rem; color: var(--ink);
+}
+.wp-dash { color: var(--ink2); font-size: 0.7rem; }
+.wp-apply {
+  background: var(--accent); color: var(--cream); border: none; cursor: pointer;
+  padding: 5px 12px; border-radius: 4px; font-family: var(--font-mono);
+  font-size: 0.72rem; font-weight: 600; transition: opacity .15s;
+}
+.wp-apply:hover { opacity: 0.88; }
+
+
 /* ============================================================
    KPI GRID
 ============================================================ */
@@ -709,3 +725,8 @@ body {
 .sidebar__bylink { display: block; }
 .sidebar__bylink:hover .sidebar__bylogo { opacity: 0.8; }
 .sidebar__logo-link { display: block; }
+
+/* ---- order drawer: gift note + gift card badge ---- */
+.drawer-gift-note  { margin-top: .4rem; padding: .6rem .75rem; background: #f7f3ea;
+  border-left: 3px solid #013088; border-radius: 4px; font-style: italic; color: #1a1a2e; }
+.drawer-gift-badge { display: inline-block; font-size: .8rem; color: #013088; font-weight: 600; }

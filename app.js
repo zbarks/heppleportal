@@ -37,10 +37,35 @@
     activeSection: 'overview',
     orderFilter: 'all', orderSearch: '',
     windowDays: 90,
+    rangeMode: 'days',   // 'days' | 'all' | 'custom'
+    rangeFrom: null, rangeTo: null,
     selectedOrder: null,
     chartsBuilt: {},
     anyDemo: false,
   };
+
+  // Build the query string for the current range (used by metrics + orders)
+  function rangeQS() {
+    if (state.rangeMode === 'all') return 'all=1';
+    if (state.rangeMode === 'custom') {
+      var p = [];
+      if (state.rangeFrom) p.push('from=' + state.rangeFrom);
+      if (state.rangeTo) p.push('to=' + state.rangeTo);
+      return p.join('&') || ('days=' + state.windowDays);
+    }
+    return 'days=' + state.windowDays;
+  }
+
+  // Human label for KPI subtitles
+  function rangeLabel() {
+    if (state.rangeMode === 'all') return 'all time';
+    if (state.rangeMode === 'custom') {
+      if (state.rangeFrom && state.rangeTo) return state.rangeFrom + ' → ' + state.rangeTo;
+      if (state.rangeFrom) return 'since ' + state.rangeFrom;
+      if (state.rangeTo) return 'up to ' + state.rangeTo;
+    }
+    return 'last ' + state.windowDays + 'd';
+  }
 
   // ---- fetch ----
   function api(url) {
@@ -75,10 +100,29 @@
       btn.addEventListener('click', function() {
         document.querySelectorAll('.wp-btn').forEach(function(b){ b.classList.remove('is-active'); });
         btn.classList.add('is-active');
-        state.windowDays = parseInt(btn.dataset.days, 10);
+        if (btn.dataset.range === 'all') {
+          state.rangeMode = 'all';
+        } else {
+          state.rangeMode = 'days';
+          state.windowDays = parseInt(btn.dataset.days, 10);
+        }
         loadMetrics();
         loadOrders();
       });
+    });
+
+    // Custom date range
+    var applyBtn = document.getElementById('rangeApply');
+    if (applyBtn) applyBtn.addEventListener('click', function() {
+      var f = document.getElementById('rangeFrom').value;
+      var t = document.getElementById('rangeTo').value;
+      if (!f && !t) return;
+      state.rangeMode = 'custom';
+      state.rangeFrom = f || null;
+      state.rangeTo = t || null;
+      document.querySelectorAll('.wp-btn').forEach(function(b){ b.classList.remove('is-active'); });
+      loadMetrics();
+      loadOrders();
     });
 
     // Order filter tabs
@@ -147,7 +191,7 @@
   //  LOAD METRICS
   // ============================================================
   function loadMetrics(cb) {
-    api('/api/metrics?days=' + state.windowDays).then(function(m) {
+    api('/api/metrics?' + rangeQS()).then(function(m) {
       if (cb) cb();
       state.metrics = m;
       if (m.demo) state.anyDemo = true;
@@ -167,7 +211,7 @@
   //  LOAD ORDERS
   // ============================================================
   function loadOrders(cb) {
-    api('/api/orders?days=' + state.windowDays).then(function(o) {
+    api('/api/orders?' + rangeQS()).then(function(o) {
       if (cb) cb();
       state.orders = o;
       if (o.demo) state.anyDemo = true;
@@ -218,10 +262,11 @@
   // ============================================================
   function renderKPIs(m) {
     var a = state.analytics || {};
+    var rl = rangeLabel();
     var cards = [
-      { label: 'Revenue', value: gbp(m.revenue, 0), sub: state.windowDays + 'd gross', cls: '' },
-      { label: 'Net (after fees)', value: gbp(m.net, 0), sub: 'est. after Stripe fees', cls: 'kpi-card--blue' },
-      { label: 'Orders', value: num(m.orders), sub: gbp(m.aov, 2) + ' avg order', cls: '' },
+      { label: 'Revenue', value: gbp(m.revenue, 0), sub: rl + ' · all sources', cls: '' },
+      { label: 'Avg order', value: gbp(m.aov, 2), sub: 'per order', cls: 'kpi-card--blue' },
+      { label: 'Orders', value: num(m.orders), sub: rl, cls: '' },
       { label: 'Customers', value: num(m.customers), sub: 'unique buyers', cls: 'kpi-card--blue' },
       { label: 'Units sold', value: num(m.units), sub: 'across all products', cls: '' },
       { label: 'Conversion', value: a.conversionRate != null ? a.conversionRate + '%' : '—', sub: 'visitor → purchase', cls: '' },
@@ -402,6 +447,13 @@
         '<div class="drawer-label">Items</div>' +
         '<div class="drawer-line-items">' + lineItemsHtml + '</div>' +
       '</div>' +
+
+      (order.gift_message || order.has_gift_card ?
+        '<div class="drawer-section">' +
+          '<div class="drawer-label">Gift</div>' +
+          (order.has_gift_card ? '<div class="drawer-gift-badge">🎁 Gift card included</div>' : '') +
+          (order.gift_message ? '<div class="drawer-gift-note">' + esc(order.gift_message) + '</div>' : '') +
+        '</div>' : '') +
 
       '<div class="drawer-section">' +
         '<div class="drawer-label">Details</div>' +
@@ -693,20 +745,29 @@
   function renderCustomers() {
     var el = document.getElementById('custList');
     if (!el || !state.orders) return;
-    var orders = state.orders.orders || [];
-    var map = new Map();
-    orders.forEach(function(o) {
-      var k = o.customer_email;
-      if (!k) return;
-      var cur = map.get(k) || { email: k, name: o.customer_name, orders: 0, spent: 0, last: o.created_at };
-      cur.orders += 1; cur.spent += o.total;
-      if (o.created_at > cur.last) cur.last = o.created_at;
-      map.set(k, cur);
-    });
-    var custs = Array.from(map.values())
-      .map(function(c){ return Object.assign({}, c, { spent: +c.spent.toFixed(2) }); })
-      .sort(function(a, b){ return b.spent - a.spent })
-      .slice(0, 20);
+    var custs;
+    // Prefer whole-history figures from the customer_summary RPC.
+    if (state.orders.customers && state.orders.customers.length) {
+      custs = state.orders.customers.map(function(c){
+        return { email: c.email, name: c.name, orders: c.orders, spent: +(+c.spent).toFixed(2), last: c.last_order };
+      }).slice(0, 20);
+    } else {
+      // Fallback: aggregate from the windowed orders list (pre-RPC behaviour).
+      var orders = state.orders.orders || [];
+      var map = new Map();
+      orders.forEach(function(o) {
+        var k = o.customer_email;
+        if (!k) return;
+        var cur = map.get(k) || { email: k, name: o.customer_name, orders: 0, spent: 0, last: o.created_at };
+        cur.orders += 1; cur.spent += o.total;
+        if (o.created_at > cur.last) cur.last = o.created_at;
+        map.set(k, cur);
+      });
+      custs = Array.from(map.values())
+        .map(function(c){ return Object.assign({}, c, { spent: +c.spent.toFixed(2) }); })
+        .sort(function(a, b){ return b.spent - a.spent })
+        .slice(0, 20);
+    }
 
     if (!custs.length) { el.innerHTML = '<p class="empty-state">No customer data yet.</p>'; return; }
     el.innerHTML = custs.map(function(c, i) {

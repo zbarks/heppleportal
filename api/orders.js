@@ -135,11 +135,26 @@ function productLeaderboard(orders) {
     .sort((a, b) => b.units - a.units);
 }
 
+// Resolve a date range from the query: ?all=1 | ?from=YYYY-MM-DD&to=YYYY-MM-DD | ?days=N
+// Bounds are half-open [from, to); `to` is pushed +1 day so the end date is inclusive.
+function resolveRange(q) {
+  q = q || {};
+  if (q.all === '1' || q.all === 'true') return { from: null, to: null, days: null };
+  if (q.from || q.to) {
+    let to = null;
+    if (q.to) { const d = new Date(q.to + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1); to = d.toISOString(); }
+    return { from: q.from ? new Date(q.from + 'T00:00:00Z').toISOString() : null, to, days: null };
+  }
+  const days = Math.min(3650, Math.max(1, parseInt(q.days, 10) || 180));
+  return { from: new Date(Date.now() - days * 86400000).toISOString(), to: null, days };
+}
+
 module.exports = async function handler(req, res) {
   const SUPA_URL = process.env.SUPABASE_URL;
   const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
   const windowDays = Math.min(730, Math.max(7, parseInt(req.query && req.query.days, 10) || 180));
+  const range = resolveRange(req.query);
   const limit = Math.min(1000, Math.max(50, parseInt(req.query && req.query.limit, 10) || 500));
 
   // ---- SUPABASE ----
@@ -147,7 +162,9 @@ module.exports = async function handler(req, res) {
   if (SUPA_URL && SUPA_KEY) {
     try {
       const since = new Date(Date.now() - windowDays * DAY).toISOString();
-      const url = `${SUPA_URL.replace(/\/$/, '')}/rest/v1/orders?select=*&order=created_at.desc&limit=${limit}&created_at=gte.${since}`;
+      let url = `${SUPA_URL.replace(/\/$/, '')}/rest/v1/orders?select=*&order=created_at.desc&limit=${limit}`;
+      if (range.from) url += `&created_at=gte.${range.from}`;
+      if (range.to)   url += `&created_at=lt.${range.to}`;
       const r = await fetch(url, {
         headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` },
       });
@@ -158,10 +175,27 @@ module.exports = async function handler(req, res) {
         ...o,
         items: (o.items || []).map(normaliseItem),
       }));
+
+      // Whole-history aggregates via Postgres RPCs — NOT limited by the
+      // date window or row limit above. Falls back to windowed JS if absent.
+      async function rpc(fn, body) {
+        const r = await fetch(`${SUPA_URL.replace(/\/$/, '')}/rest/v1/rpc/${fn}`, {
+          method: 'POST',
+          headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body || {}),
+        });
+        return r.ok ? r.json() : null;
+      }
+      const [lb, custs] = await Promise.all([
+        rpc('product_leaderboard', { from_date: range.from, to_date: range.to }),
+        rpc('customer_summary', { min_orders: 1, from_date: range.from, to_date: range.to }),
+      ]);
+
       return ok(res, {
-        demo: false, source: 'supabase', windowDays,
+        demo: false, source: 'supabase', windowDays, range,
         summary: summarise(orders),
-        productLeaderboard: productLeaderboard(orders),
+        productLeaderboard: (lb && lb.length) ? lb : productLeaderboard(orders),
+        customers: custs || null,
         orders,
       });
     } catch (err) {

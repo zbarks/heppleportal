@@ -1,8 +1,13 @@
 // ============================================================
 //  GET /api/metrics
-//  Revenue, net, orders, customers, AOV, units, daily series,
-//  per-product split. Source: STRIPE. Window: configurable via
-//  ?days=N (default 90, max 730). Falls back to DEMO.
+//  Revenue, orders, customers, AOV, units, daily + monthly
+//  series. Source: SUPABASE orders table — so it includes BOTH
+//  Stripe orders (via the webhook) AND imported Shopify history.
+//  All-time revenue therefore uses your Shopify takings as the base.
+//
+//  Range: ?all=1  |  ?from=YYYY-MM-DD&to=YYYY-MM-DD  |  ?days=N
+//  (the 30-day daily sparkline is always the rolling last 30 days)
+//  Falls back to DEMO when Supabase env vars are absent.
 // ============================================================
 const demo = require('./_demo');
 
@@ -14,94 +19,84 @@ function ok(res, body) {
   res.status(200).json(body);
 }
 
-module.exports = async function handler(req, res) {
-  const key = process.env.STRIPE_SECRET_KEY;
-  const windowDays = Math.min(730, Math.max(7, parseInt(req.query && req.query.days, 10) || 90));
+// ?all=1 | ?from=&to= | ?days=N  → { from, to, days }
+function resolveRange(q) {
+  q = q || {};
+  if (q.all === '1' || q.all === 'true') return { from: null, to: null, days: null };
+  if (q.from || q.to) {
+    let to = null;
+    if (q.to) { const d = new Date(q.to + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1); to = d.toISOString(); }
+    return { from: q.from ? new Date(q.from + 'T00:00:00Z').toISOString() : null, to, days: null };
+  }
+  const days = Math.min(3650, Math.max(1, parseInt(q.days, 10) || 90));
+  return { from: new Date(Date.now() - days * DAY).toISOString(), to: null, days };
+}
 
-  if (!key) {
-    return ok(res, { demo: true, source: 'demo', windowDays, ...demo.metrics(windowDays) });
+module.exports = async function handler(req, res) {
+  const SUPA_URL = process.env.SUPABASE_URL;
+  const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const range = resolveRange(req.query);
+
+  if (!SUPA_URL || !SUPA_KEY) {
+    return ok(res, { demo: true, source: 'demo', range, ...demo.metrics(90) });
+  }
+
+  async function rpc(fn, body) {
+    const r = await fetch(`${SUPA_URL.replace(/\/$/, '')}/rest/v1/rpc/${fn}`, {
+      method: 'POST',
+      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    if (!r.ok) throw new Error(`rpc ${fn} ${r.status}`);
+    return r.json();
   }
 
   try {
-    const stripe = require('stripe')(key);
-    const since = Math.floor((Date.now() - windowDays * DAY) / 1000);
+    const bounds = { from_date: range.from, to_date: range.to };
+    const since30 = new Date(Date.now() - 30 * DAY).toISOString();
 
-    const charges = [];
-    let starting_after;
-    for (let i = 0; i < 20; i++) {
-      const page = await stripe.charges.list({
-        created: { gte: since },
-        limit: 100,
-        ...(starting_after ? { starting_after } : {}),
-        expand: ['data.balance_transaction'],
-      });
-      charges.push(...page.data);
-      if (!page.has_more) break;
-      starting_after = page.data[page.data.length - 1].id;
-    }
+    const [mRows, monthlyRows, dailyRows] = await Promise.all([
+      rpc('revenue_metrics', bounds),
+      rpc('revenue_by_month', bounds),
+      rpc('revenue_by_day', { from_date: since30, to_date: null }),  // sparkline = rolling 30d
+    ]);
 
-    const paid = charges.filter(c => c.paid && c.status === 'succeeded');
+    const m = (mRows && mRows[0]) || {};
 
-    let gross = 0, net = 0, refunded = 0;
-    const customers = new Set();
-    const dayMap = new Map();
-
-    paid.forEach(c => {
-      const amt = (c.amount || 0) / 100;
-      const ref = (c.amount_refunded || 0) / 100;
-      gross += amt;
-      refunded += ref;
-      const bt = c.balance_transaction;
-      if (bt && typeof bt === 'object') net += (bt.net || 0) / 100;
-      else net += amt - ref;
-      const who = c.customer || c.billing_details?.email || c.receipt_email;
-      if (who) customers.add(who);
-      const k = new Date(c.created * 1000).toISOString().slice(0, 10);
-      const cur = dayMap.get(k) || { revenue: 0, orders: 0 };
-      cur.revenue += amt; cur.orders += 1;
-      dayMap.set(k, cur);
-    });
-
-    const orders = paid.length;
-    const revenue = +(gross - refunded).toFixed(2);
-
-    // Continuous daily series for last 30 days
-    const today = new Date(); today.setHours(0, 0, 0, 0);
+    // Continuous 30-day daily series (fill gaps with zero)
+    const dayMap = {};
+    (dailyRows || []).forEach(d => { dayMap[d.day] = d; });
+    const today = new Date(); today.setUTCHours(0, 0, 0, 0);
     const daily = [];
     for (let i = 29; i >= 0; i--) {
       const k = new Date(today.getTime() - i * DAY).toISOString().slice(0, 10);
-      const d = dayMap.get(k) || { revenue: 0, orders: 0 };
-      daily.push({ date: k, revenue: +d.revenue.toFixed(2), orders: d.orders });
+      const d = dayMap[k];
+      daily.push({ date: k, revenue: d ? +d.revenue : 0, orders: d ? +d.orders : 0 });
     }
 
-    // Monthly series for longer view
-    const monthly = [];
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i); d.setHours(0,0,0,0);
-      const monthKey = d.toISOString().slice(0, 7);
-      let rev = 0, ord = 0;
-      dayMap.forEach((v, k) => { if (k.startsWith(monthKey)) { rev += v.revenue; ord += v.orders; } });
-      monthly.push({ month: monthKey, revenue: +rev.toFixed(2), orders: ord });
-    }
+    const revenue = +(m.revenue || 0);
+    const orders = +(m.orders || 0);
 
     return ok(res, {
-      demo: false, source: 'stripe', windowDays,
-      revenue, net: +net.toFixed(2), refunded: +refunded.toFixed(2),
-      orders, customers: customers.size,
-      aov: orders ? +(revenue / orders).toFixed(2) : 0,
-      currency: (paid[0]?.currency || 'gbp'),
-      daily, monthly,
+      demo: false, source: 'supabase', range,
+      revenue, orders,
+      customers: +(m.customers || 0),
+      aov: +(m.aov || 0),
+      units: +(m.units || 0),
+      net: revenue,            // cross-source: fees aren't tracked for Shopify, so net == gross
+      firstOrder: m.first_order || null,
+      lastOrder: m.last_order || null,
+      currency: 'gbp',
+      daily,
+      monthly: (monthlyRows || []).map(r => ({ month: r.month, revenue: +r.revenue, orders: +r.orders })),
       byProduct: [],
     });
   } catch (err) {
-    // Log the error but return demo:false so a Stripe blip doesn't
-    // trigger the demo banner when Supabase orders are loading fine.
-    console.error('[metrics] stripe error:', err && err.message);
+    console.error('[metrics] supabase error:', err && err.message);
     return ok(res, {
-      demo: false, source: 'stripe_error', windowDays,
+      demo: false, source: 'supabase_error', range,
       error: String(err && err.message || err),
-      revenue: 0, net: 0, refunded: 0,
-      orders: 0, customers: 0, aov: 0,
+      revenue: 0, orders: 0, customers: 0, aov: 0, units: 0, net: 0,
       currency: 'gbp', daily: [], monthly: [], byProduct: [],
     });
   }

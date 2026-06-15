@@ -34,3 +34,9 @@ create index if not exists orders_email_idx       on public.orders (customer_ema
 -- The site webhook and the portal both use the SERVICE ROLE key,
 -- which bypasses RLS. No browser ever reads this table directly.
 alter table public.orders enable row level security;
+
+-- ---- portal history upgrade (see migrations/2026_portal_history.sql) ----
+alter table public.orders add column if not exists gift_message  text;
+alter table public.orders add column if not exists has_gift_card boolean not null default false;
+alter table public.orders add column if not exists source        text    not null default 'stripe';
+create index if not exists orders_source_idx on public.orders (source);
