@@ -456,6 +456,16 @@
           (order.gift_message ? '<div class="drawer-gift-note">' + esc(order.gift_message) + '</div>' : '') +
         '</div>' : '') +
 
+      (order.tracking_number ?
+        '<div class="drawer-section">' +
+          '<div class="drawer-label">Tracking</div>' +
+          '<div style="font-size:14px;line-height:1.6;">' +
+            esc(order.tracking_carrier || 'Carrier') + ' · ' +
+            '<span style="font-family:ui-monospace,Menlo,Consolas,monospace;">' + esc(order.tracking_number) + '</span>' +
+            (order.tracking_url ? '<br><a href="' + esc(order.tracking_url) + '" target="_blank" rel="noopener" style="color:var(--navy,#003087);">Track parcel ↗</a>' : '') +
+          '</div>' +
+        '</div>' : '') +
+
       '<div class="drawer-section">' +
         '<div class="drawer-label">Details</div>' +
         '<div class="drawer-meta-grid">' +
@@ -487,15 +497,26 @@
     state.selectedOrder = null;
   }
 
-  function toggleFulfil(order, fulfilled, btn) {
+  function toggleFulfil(order, fulfilled, btn, extra) {
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    var payload = { stripe_session_id: order.stripe_session_id, fulfilled: fulfilled };
+    if (extra && extra.tracking_carrier) payload.tracking_carrier = extra.tracking_carrier;
+    if (extra && extra.tracking_number)  payload.tracking_number  = extra.tracking_number;
     fetch('/api/fulfill', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stripe_session_id: order.stripe_session_id, fulfilled: fulfilled }),
+      body: JSON.stringify(payload),
     }).then(function(r){ return r.json(); }).then(function(result) {
       order.fulfilled = fulfilled;
       order.fulfilled_at = fulfilled ? new Date().toISOString() : null;
+      if (result && result.order) {
+        order.tracking_carrier = result.order.tracking_carrier;
+        order.tracking_number  = result.order.tracking_number;
+        order.tracking_url     = result.order.tracking_url;
+        order.shipped_at       = result.order.shipped_at;
+      } else if (!fulfilled) {
+        order.tracking_carrier = order.tracking_number = order.tracking_url = order.shipped_at = null;
+      }
       renderOrdersList();
       renderFulfilment();
       openDrawer(order); // re-render drawer
@@ -594,7 +615,45 @@
   // ============================================================
   //  FULFILMENT
   // ============================================================
+  // ---- Admin gift availability switch ----
+  function renderGiftSwitch() {
+    var btn = document.getElementById('giftSwitchBtn');
+    var hint = document.getElementById('giftSwitchHint');
+    if (!btn) return;
+    var on = state.giftEnabled !== false;
+    btn.textContent = on ? 'On' : 'Off';
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.style.background = on ? '#003087' : '#b8b2a4';
+    if (hint) hint.textContent = on
+      ? 'Customers can add a gift card & message at checkout.'
+      : 'Gift option is hidden from the shop — customers can’t add cards.';
+    btn.onclick = function () {
+      var next = !(state.giftEnabled !== false);
+      btn.disabled = true;
+      fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gift_enabled: next }),
+      }).then(function (r) { return r.json(); }).then(function (s) {
+        state.giftEnabled = s && s.gift_enabled !== false;
+        btn.disabled = false;
+        renderGiftSwitch();
+      }).catch(function () {
+        btn.disabled = false;
+        renderGiftSwitch();
+      });
+    };
+  }
+
+  function loadGiftSwitch() {
+    fetch('/api/settings')
+      .then(function (r) { return r.json(); })
+      .then(function (s) { state.giftEnabled = s && s.gift_enabled !== false; renderGiftSwitch(); })
+      .catch(function () { renderGiftSwitch(); });
+  }
+
   function renderFulfilment() {
+    loadGiftSwitch();
     if (!state.orders) return;
     var orders = state.orders.orders || [];
     var summary = state.orders.summary || {};
@@ -614,6 +673,7 @@
       el.innerHTML = '<p class="empty-state">All orders fulfilled 🎉</p>';
       return;
     }
+    var CARRIERS = ['Royal Mail','Parcelforce','DPD','Evri','UPS','DHL','FedEx'];
     el.innerHTML = outstanding.map(function(o) {
       var addr = o.shipping_address || {};
       var recipient = (addr.name && addr.name !== o.customer_name) ? addr.name : '';
@@ -622,6 +682,8 @@
       var items = o.items && o.items.length
         ? o.items.map(function(it){ return it.qty + '× ' + ((it.name || '').replace('Hepple ','') || it.sku || 'Unknown item'); }).join(', ')
         : (o.cart_summary || '—');
+      var carrierOpts = '<option value="">Carrier…</option>' +
+        CARRIERS.map(function(c){ return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('');
       return '<div class="fulfil-card">' +
         '<div class="fulfil-card__info">' +
           '<div class="fulfil-card__name">' + esc(o.customer_name || 'Unknown') + '</div>' +
@@ -631,7 +693,11 @@
         '<div class="fulfil-card__items">' + esc(items) + '</div>' +
         '<div class="fulfil-card__total">' + gbp(o.total, 2) + '</div>' +
         '<div class="fulfil-card__date">' + shortDate(o.created_at) + '</div>' +
-        '<button class="fulfil-card__btn" data-id="' + esc(o.stripe_session_id) + '">Mark fulfilled</button>' +
+        '<div class="fulfil-card__ship" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;">' +
+          '<select data-carrier style="padding:7px 9px;border:1px solid #d8d2c4;border-radius:8px;background:#fff;font-size:13px;">' + carrierOpts + '</select>' +
+          '<input data-track type="text" placeholder="Tracking no. (optional)" autocomplete="off" style="flex:1;min-width:130px;padding:7px 10px;border:1px solid #d8d2c4;border-radius:8px;font-size:13px;" />' +
+          '<button class="fulfil-card__btn" data-id="' + esc(o.stripe_session_id) + '">Mark fulfilled</button>' +
+        '</div>' +
       '</div>';
     }).join('');
 
@@ -639,7 +705,18 @@
       btn.addEventListener('click', function() {
         var id = btn.dataset.id;
         var order = orders.find(function(o){ return o.stripe_session_id === id; });
-        if (order) toggleFulfil(order, true, btn);
+        var card = btn.closest('.fulfil-card');
+        var sel = card && card.querySelector('[data-carrier]');
+        var inp = card && card.querySelector('[data-track]');
+        var extra = {
+          tracking_carrier: sel ? sel.value : '',
+          tracking_number:  inp ? inp.value.trim() : '',
+        };
+        if (extra.tracking_number && !extra.tracking_carrier) {
+          if (sel) { sel.style.borderColor = '#c00'; sel.focus(); }
+          return; // a tracking number needs a carrier to build the link
+        }
+        if (order) toggleFulfil(order, true, btn, extra);
       });
     });
   }
