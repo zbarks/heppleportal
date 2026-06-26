@@ -403,6 +403,7 @@
     state.selectedOrder = order;
     var content = document.getElementById('drawerContent');
     var addr = order.shipping_address || {};
+    var recipient = addr.name || order.customer_name || '';
     var addrLines = [addr.line1, addr.line2, addr.city, addr.postal_code, addr.country]
       .filter(Boolean).join('<br>');
 
@@ -441,7 +442,7 @@
       '</div>' +
 
       (addrLines ? '<div class="drawer-section"><div class="drawer-label">Shipping address</div>' +
-        '<div class="drawer-address">' + addrLines + '</div></div>' : '') +
+        '<div class="drawer-address">' + (recipient ? '<strong>' + esc(recipient) + '</strong><br>' : '') + addrLines + '</div></div>' : '') +
 
       '<div class="drawer-section">' +
         '<div class="drawer-label">Items</div>' +
@@ -615,6 +616,7 @@
     }
     el.innerHTML = outstanding.map(function(o) {
       var addr = o.shipping_address || {};
+      var recipient = (addr.name && addr.name !== o.customer_name) ? addr.name : '';
       var addrLines = [addr.line1, addr.line2, addr.city, addr.postal_code, addr.country]
         .filter(Boolean).join(', ');
       var items = o.items && o.items.length
@@ -624,7 +626,7 @@
         '<div class="fulfil-card__info">' +
           '<div class="fulfil-card__name">' + esc(o.customer_name || 'Unknown') + '</div>' +
           '<div class="fulfil-card__email">' + esc(o.customer_email || '') + '</div>' +
-          (addrLines ? '<div class="fulfil-card__addr">📍 ' + esc(addrLines) + '</div>' : '<div class="fulfil-card__addr fulfil-card__addr--missing">⚠️ No shipping address</div>') +
+          (addrLines ? '<div class="fulfil-card__addr">📍 ' + (recipient ? '<strong>' + esc(recipient) + '</strong> — ' : '') + esc(addrLines) + '</div>' : '<div class="fulfil-card__addr fulfil-card__addr--missing">⚠️ No shipping address</div>') +
         '</div>' +
         '<div class="fulfil-card__items">' + esc(items) + '</div>' +
         '<div class="fulfil-card__total">' + gbp(o.total, 2) + '</div>' +

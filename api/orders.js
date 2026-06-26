@@ -250,9 +250,15 @@ module.exports = async function handler(req, res) {
             stripe_session_id:  s.id,
             customer_email:     s.customer_details && s.customer_details.email  || null,
             customer_name:      s.customer_details && s.customer_details.name   || null,
-            shipping_address:   (s.shipping_details && s.shipping_details.address)
-                                || (s.customer_details && s.customer_details.address)
-                                || null,
+            shipping_address:   (function () {
+  var sd = (s.collected_information && s.collected_information.shipping_details)
+    || (s.shipping_details && s.shipping_details.address ? { address: s.shipping_details.address, name: s.shipping_details.name } : null)
+    || (s.shipping && s.shipping.address ? { address: s.shipping.address, name: s.shipping.name } : null);
+  var address = (sd && sd.address) || (s.customer_details && s.customer_details.address) || null;
+  if (!address) return null;
+  var name = (sd && sd.name) || (s.customer_details && s.customer_details.name) || null;
+  return name ? Object.assign({}, address, { name: name }) : address;
+})(),
             currency:           s.currency || 'gbp',
             total:              (s.amount_total    || 0) / 100,
             subtotal:           (s.amount_subtotal || 0) / 100,

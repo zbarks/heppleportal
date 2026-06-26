@@ -165,9 +165,15 @@ module.exports = async (req, res) => {
       } catch (_) { /* non-fatal — items will be empty array */ }
 
       // Build full shipping address — every field needed for dispatch
-      const shippingAddr = (s.shipping_details && s.shipping_details.address)
-        || (s.customer_details && s.customer_details.address)
-        || null;
+      const shippingAddr = (function () {
+  var sd = (s.collected_information && s.collected_information.shipping_details)
+    || (s.shipping_details && s.shipping_details.address ? { address: s.shipping_details.address, name: s.shipping_details.name } : null)
+    || (s.shipping && s.shipping.address ? { address: s.shipping.address, name: s.shipping.name } : null);
+  var address = (sd && sd.address) || (s.customer_details && s.customer_details.address) || null;
+  if (!address) return null;
+  var name = (sd && sd.name) || (s.customer_details && s.customer_details.name) || null;
+  return name ? Object.assign({}, address, { name: name }) : address;
+})();
 
       const order = {
         stripe_session_id:    s.id,

@@ -98,9 +98,15 @@ async function main() {
       const lineItems = (session.line_items && session.line_items.data) || [];
       const items = lineItems.map(resolveLineItem);
 
-      const shippingAddress = (session.shipping_details && session.shipping_details.address)
-        || (session.customer_details && session.customer_details.address)
-        || null;
+      const shippingAddress = (function () {
+  var sd = (session.collected_information && session.collected_information.shipping_details)
+    || (session.shipping_details && session.shipping_details.address ? { address: session.shipping_details.address, name: session.shipping_details.name } : null)
+    || (session.shipping && session.shipping.address ? { address: session.shipping.address, name: session.shipping.name } : null);
+  var address = (sd && sd.address) || (session.customer_details && session.customer_details.address) || null;
+  if (!address) return null;
+  var name = (sd && sd.name) || (session.customer_details && session.customer_details.name) || null;
+  return name ? Object.assign({}, address, { name: name }) : address;
+})();
 
       const itemCount = items.reduce((s, i) => s + i.qty, 0) || null;
       const cartSummary = items.map(i => `${i.qty}× ${i.name}`).join(', ');
