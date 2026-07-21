@@ -180,6 +180,7 @@ module.exports = async (req, res) => {
         stripe_payment_intent: s.payment_intent || null,
         customer_email:       (s.customer_details && s.customer_details.email) || s.customer_email || null,
         customer_name:        (s.customer_details && s.customer_details.name)  || null,
+        customer_phone:       (s.customer_details && s.customer_details.phone) || null,
         currency:             (s.currency || 'gbp').toLowerCase(),
         total:                (s.amount_total    || 0) / 100,
         subtotal:             (s.amount_subtotal || 0) / 100,

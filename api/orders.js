@@ -250,6 +250,7 @@ module.exports = async function handler(req, res) {
             stripe_session_id:  s.id,
             customer_email:     s.customer_details && s.customer_details.email  || null,
             customer_name:      s.customer_details && s.customer_details.name   || null,
+            customer_phone:     s.customer_details && s.customer_details.phone  || null,
             shipping_address:   (function () {
   var sd = (s.collected_information && s.collected_information.shipping_details)
     || (s.shipping_details && s.shipping_details.address ? { address: s.shipping_details.address, name: s.shipping_details.name } : null)

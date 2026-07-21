@@ -40,3 +40,8 @@ alter table public.orders add column if not exists gift_message  text;
 alter table public.orders add column if not exists has_gift_card boolean not null default false;
 alter table public.orders add column if not exists source        text    not null default 'stripe';
 create index if not exists orders_source_idx on public.orders (source);
+
+-- ------------------------------------------------------------
+--  Mobile number (added later). Run once if upgrading.
+-- ------------------------------------------------------------
+alter table public.orders add column if not exists customer_phone text;

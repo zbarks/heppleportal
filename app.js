@@ -433,6 +433,7 @@
         '<div class="drawer-ref">' + esc(order.stripe_session_id || '') + '</div>' +
         '<div class="drawer-name">' + esc(order.customer_name || 'Unknown') + '</div>' +
         '<div class="drawer-email">' + esc(order.customer_email || '') + '</div>' +
+        (order.customer_phone ? '<div class="drawer-phone" style="font-size:.85rem;color:var(--text2);margin-top:2px;">📞 ' + esc(order.customer_phone) + '</div>' : '') +
       '</div>' +
 
       '<div class="drawer-section">' +
@@ -688,6 +689,7 @@
         '<div class="fulfil-card__info">' +
           '<div class="fulfil-card__name">' + esc(o.customer_name || 'Unknown') + '</div>' +
           '<div class="fulfil-card__email">' + esc(o.customer_email || '') + '</div>' +
+          (o.customer_phone ? '<div class="fulfil-card__phone" style="font-size:.8rem;color:var(--text2);">📞 ' + esc(o.customer_phone) + '</div>' : '') +
           (addrLines ? '<div class="fulfil-card__addr">📍 ' + (recipient ? '<strong>' + esc(recipient) + '</strong> — ' : '') + esc(addrLines) + '</div>' : '<div class="fulfil-card__addr fulfil-card__addr--missing">⚠️ No shipping address</div>') +
         '</div>' +
         '<div class="fulfil-card__items">' + esc(items) + '</div>' +
