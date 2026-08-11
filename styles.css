@@ -852,3 +852,18 @@ body {
 }
 /* Rows with no artwork (the gift card) keep the grid slot but show nothing. */
 .leader-row__thumb:empty { background: transparent; }
+
+/* ---- discount on an individual order ---- */
+.order-tag {
+  display: inline-block; margin-left: 6px; padding: 1px 7px;
+  border-radius: 99px; background: rgba(1,48,136,0.08);
+  border: 1px solid rgba(1,48,136,0.2); color: var(--hepple-blue);
+  font-family: var(--font-mono); font-size: 0.6rem;
+  letter-spacing: 0.06em; vertical-align: middle; white-space: nowrap;
+}
+.drawer-breakdown { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.drawer-breakdown__row {
+  display: flex; justify-content: space-between; gap: 16px;
+  font-size: 0.78rem; color: var(--ink2); font-family: var(--font-mono);
+}
+.drawer-breakdown__row--promo { color: var(--hepple-blue); font-weight: 700; }

@@ -155,6 +155,10 @@ line items directly, which works immediately. Set it to a real Stripe coupon id
 and checkout uses that instead, so the discount shows as a proper promotion in
 the Stripe dashboard.
 
+Discounted orders show the code as a tag in the Orders list, and open with a
+full breakdown — subtotal, code, discount, shipping — that reconciles to the
+amount charged.
+
 ### Product photos in the leaderboard
 
 The Products leaderboard pulls thumbnails straight from the live shop and links

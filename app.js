@@ -381,7 +381,8 @@
           '<div class="order-card__name">' + esc(o.customer_name || 'Unknown') + '</div>' +
           '<div class="order-card__email">' + esc(o.customer_email || '') + '</div>' +
         '</div>' +
-        '<div class="order-card__items">' + esc(items) + '</div>' +
+        '<div class="order-card__items">' + esc(items) +
+          (o.promo_code ? ' <span class="order-tag">' + esc(o.promo_code) + '</span>' : '') + '</div>' +
         '<div class="order-card__total">' + gbp(o.total, 2) + '</div>' +
         '<div class="order-card__date">' + timeAgo(o.created_at) + '</div>' +
         '<div class="order-card__status">' + statusBadge + '</div>' +
@@ -402,8 +403,33 @@
   // ============================================================
   //  ORDER DRAWER
   // ============================================================
+
+  // Work out a breakdown that actually adds up.
+  //
+  // orders.subtotal comes straight from Stripe's amount_subtotal, and what
+  // that means depends on how the discount was applied:
+  //   • inline (line items reduced) -> it's already NET of the discount
+  //   • Stripe coupon               -> it's the GROSS figure
+  // Rather than guess, work out which one reconciles against the total.
+  function orderMoney(order) {
+    var subtotal = Number(order.subtotal) || 0;
+    var shipping = Number(order.shipping) || 0;
+    var total    = Number(order.total) || 0;
+    var discount = Number(order.discount_amount) || 0;
+
+    if (discount <= 0) return { gross: subtotal, discount: 0, shipping: shipping, total: total };
+
+    // Coupon route: total = subtotal − discount + shipping, so subtotal is gross.
+    if (Math.abs(total - (subtotal - discount + shipping)) < 0.02) {
+      return { gross: subtotal, discount: discount, shipping: shipping, total: total };
+    }
+    // Otherwise the discount is already inside subtotal — add it back for display.
+    return { gross: subtotal + discount, discount: discount, shipping: shipping, total: total };
+  }
+
   function openDrawer(order) {
     state.selectedOrder = order;
+    var money = orderMoney(order);
     var content = document.getElementById('drawerContent');
     var addr = order.shipping_address || {};
     var recipient = addr.name || order.customer_name || '';
@@ -441,8 +467,16 @@
 
       '<div class="drawer-section">' +
         '<div class="drawer-total">' + gbp(order.total, 2) + '</div>' +
-        '<div class="drawer-total-sub">subtotal ' + gbp(order.subtotal, 2) +
-          (order.shipping ? ' + ' + gbp(order.shipping, 2) + ' shipping' : ' · free shipping') + '</div>' +
+        (money.discount > 0
+          ? '<div class="drawer-breakdown">' +
+              '<div class="drawer-breakdown__row"><span>Subtotal</span><span>' + gbp(money.gross, 2) + '</span></div>' +
+              '<div class="drawer-breakdown__row drawer-breakdown__row--promo">' +
+                '<span>' + esc(order.promo_code) + '</span><span>−' + gbp(money.discount, 2) + '</span></div>' +
+              '<div class="drawer-breakdown__row"><span>Shipping</span><span>' +
+                (order.shipping ? gbp(order.shipping, 2) : 'Free') + '</span></div>' +
+            '</div>'
+          : '<div class="drawer-total-sub">subtotal ' + gbp(order.subtotal, 2) +
+              (order.shipping ? ' + ' + gbp(order.shipping, 2) + ' shipping' : ' · free shipping') + '</div>') +
       '</div>' +
 
       (addrLines ? '<div class="drawer-section"><div class="drawer-label">Shipping address</div>' +
