@@ -45,6 +45,9 @@
     <li><a href="#products"   class="sidebar__link" data-section="products">
       <svg viewBox="0 0 20 20"><path d="M10 2l8 4v8l-8 4-8-4V6l8-4zm0 2.3L4.5 7 10 9.7l5.5-2.7L10 4.3zm-7 4.1v5.2l6 3V11.4l-6-3zm8 8.2l6-3V8.4l-6 3v5.2z"/></svg>Products
     </a></li>
+    <li><a href="#discounts"  class="sidebar__link" data-section="discounts">
+      <svg viewBox="0 0 20 20"><path d="M10 2l1.9 1.2 2.2-.4.9 2 2 .9-.4 2.2L17.8 10l-1.2 1.9.4 2.2-2 .9-.9 2-2.2-.4L10 17.8l-1.9-1.2-2.2.4-.9-2-2-.9.4-2.2L2.2 10 3.4 8.1 3 5.9l2-.9.9-2 2.2.4L10 2zM7.6 6.6a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6zm4.8 4.8a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6zM13 6.3l-6.6 7.4 1 .9 6.6-7.4-1-.9z"/></svg>Discounts
+    </a></li>
     <li><a href="#fulfilment" class="sidebar__link" data-section="fulfilment">
       <svg viewBox="0 0 20 20"><path d="M4 4h12v2H4zm0 4h12v2H4zm0 4h8v2H4zm10 1l2 2 4-4-1-1-3 3-1-1z"/></svg>Fulfilment
     </a></li>
@@ -201,6 +204,59 @@
       <h3 class="section-sub-title">Product leaderboard</h3>
       <div class="leaderboard" id="productLeaderboard">
         <p class="empty-state">Loading…</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================
+       DISCOUNTS
+  =================================================== -->
+  <section class="page" id="discounts" hidden>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Discounts</h1>
+        <p class="page-desc">Codes customers can enter in the cart &mdash; applied before checkout reaches Stripe</p>
+      </div>
+    </div>
+
+    <div class="disc-msg" id="discMsg" hidden></div>
+
+    <div class="disc-new">
+      <h3 class="section-sub-title">Add a code</h3>
+      <form class="disc-form" id="discForm" autocomplete="off">
+        <div class="disc-field disc-field--code">
+          <label for="discCode">Code</label>
+          <input type="text" id="discCode" placeholder="SUMMER20" maxlength="40" required />
+        </div>
+        <div class="disc-field">
+          <label for="discKind">Type</label>
+          <select id="discKind">
+            <option value="percent">% off</option>
+            <option value="fixed">&pound; off</option>
+          </select>
+        </div>
+        <div class="disc-field disc-field--sm">
+          <label for="discValue">Amount</label>
+          <input type="number" id="discValue" step="0.01" min="0.01" placeholder="10" required />
+        </div>
+        <div class="disc-field">
+          <label for="discDesc">Note <span class="disc-opt">(internal)</span></label>
+          <input type="text" id="discDesc" placeholder="Autumn mailer" maxlength="200" />
+        </div>
+        <div class="disc-field disc-field--btn">
+          <button type="submit" class="disc-btn" id="discAdd">Add code</button>
+        </div>
+      </form>
+      <div class="disc-checks">
+        <label class="disc-check"><input type="checkbox" id="discShip" /> Also free UK delivery</label>
+        <label class="disc-check"><input type="checkbox" id="discOnce" checked /> One use per customer</label>
+      </div>
+    </div>
+
+    <div class="leaderboard-wrap">
+      <h3 class="section-sub-title">All codes</h3>
+      <div class="disc-list" id="discList">
+        <p class="empty-state">Loading&hellip;</p>
       </div>
     </div>
   </section>

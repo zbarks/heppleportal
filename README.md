@@ -129,3 +129,35 @@ hepple-portal/
 
 Every API route degrades safely: if a live service errors, that feed returns
 demo data with an `error` flag rather than breaking the dashboard.
+
+---
+
+## Discounts (added 11 Aug 2026)
+
+Discount codes are managed from the portal's **Discounts** page instead of being
+hardcoded in the shop's `api/_catalogue.js`.
+
+**Database** — run `migrations/2026_discount_codes.sql` (already applied to the
+live project). It adds `discount_codes`, the `discount_code_stats` and
+`discount_code_orders` views, `orders.discount_amount`, and the
+`validate_discount_code()` function.
+
+**API** — `api/discounts.js` (GET / POST / PATCH / DELETE). Service role only;
+`middleware.js` already covers it with the portal's Basic auth.
+
+Each code is a percentage or a fixed £ amount, can also grant free UK delivery,
+and is one-use-per-customer by default. Prefer **Turn off** over **Delete** —
+past orders reference the code as a plain string, so deleting keeps the orders
+but loses the code's type and value on the report.
+
+`stripe_coupon_id` is optional. Leave it blank and the discount is applied to the
+line items directly, which works immediately. Set it to a real Stripe coupon id
+and checkout uses that instead, so the discount shows as a proper promotion in
+the Stripe dashboard.
+
+### Product photos in the leaderboard
+
+The Products leaderboard pulls thumbnails straight from the live shop and links
+each one to its product page. If the storefront ever moves, change `SHOP_ORIGIN`
+at the top of the PRODUCT ART section in `app.js` — that's the only place the
+domain appears.

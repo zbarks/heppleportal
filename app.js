@@ -77,6 +77,8 @@
   //  BOOT
   // ============================================================
   function boot() {
+    bootDiscounts();
+
     // Nav
     document.querySelectorAll('.sidebar__link').forEach(function(a) {
       a.addEventListener('click', function(e) {
@@ -178,6 +180,7 @@
     if (section === 'fulfilment' && state.orders) renderFulfilment();
     if (section === 'customers' && state.orders) renderCustomers();
     if (section === 'products' && state.orders) renderProductLeaderboard();
+    if (section === 'discounts') loadDiscounts();
   }
 
   function toggleSidebar() {
@@ -574,8 +577,15 @@
     if (!lb.length) { el.innerHTML = '<p class="empty-state">No product data yet.</p>'; return; }
     var maxUnits = Math.max.apply(null, lb.map(function(p){ return p.units; })) || 1;
     el.innerHTML = lb.map(function(p, i) {
+      var art = productArt(p.sku, p.name);
       return '<div class="leader-row">' +
         '<span class="leader-row__pos">' + (i + 1) + '</span>' +
+        (art
+          ? '<a class="leader-row__thumb" href="' + esc(art.href) + '" target="_blank" rel="noopener"' +
+              ' title="View ' + esc(p.name) + ' on the shop">' +
+              '<img src="' + esc(art.img) + '" alt="' + esc(p.name) + '" loading="lazy"' +
+              ' onerror="this.parentNode.style.display=\'none\'" /></a>'
+          : '<span class="leader-row__thumb"></span>') +
         '<div><div class="leader-row__name">' + esc(p.name) + '</div>' +
           '<div class="leader-row__sku">' + esc(p.sku || '') + '</div></div>' +
         '<div class="leader-row__units">' + num(p.units) + ' units</div>' +
@@ -908,6 +918,228 @@
         }
       }
     };
+  }
+
+
+  // ============================================================
+  //  PRODUCT ART
+  //  Thumbnails for the leaderboard, served straight off the live shop so
+  //  there's nothing to keep in sync here. Clicking one opens that product's
+  //  page. Change SHOP_ORIGIN if the storefront ever moves.
+  // ============================================================
+  var SHOP_ORIGIN = 'https://www.hepplespirits.com';
+
+  var PRODUCT_ART = {
+    'HEP-GIN-70':    { slug: 'hepple-wild-juniper-gin', file: 'hepple-gin.jpg' },
+    'HEP-DFV-70':    { slug: 'hepple-douglas-fir-vodka', file: 'douglas-fir.jpg' },
+    'HEP-WHV-70':    { slug: 'hepple-moorland-vodka',    file: 'wheat-vodka.jpg' },
+    'HEP-SLO-50':    { slug: 'hepple-sloe-hawthorn',     file: 'sloe-hawthorn-main.jpg' },
+    'HEP-AQV-70':    { slug: 'hepple-aquavit',           file: 'aquavit-main.jpg' },
+    'HEP-NEG-70':    { slug: 'hepple-negroni',           file: 'negroni-main.jpg' },
+    // Historic / alternate SKUs seen on older Shopify orders
+    'SLOE-HAWTHORN': { slug: 'hepple-sloe-hawthorn',     file: 'sloe-hawthorn-main.jpg' },
+    'AQUAVIT':       { slug: 'hepple-aquavit',           file: 'aquavit-main.jpg' }
+  };
+
+  // Fallback for rows whose SKU we don't recognise — match on the name instead.
+  var ART_BY_WORD = [
+    { test: /juniper|hepple gin/i, sku: 'HEP-GIN-70' },
+    { test: /douglas/i,            sku: 'HEP-DFV-70' },
+    { test: /moorland|wheat/i,     sku: 'HEP-WHV-70' },
+    { test: /sloe|hawthorn/i,      sku: 'HEP-SLO-50' },
+    { test: /aquavit/i,            sku: 'HEP-AQV-70' },
+    { test: /negroni/i,            sku: 'HEP-NEG-70' }
+  ];
+
+  function productArt(sku, name) {
+    var art = PRODUCT_ART[String(sku || '').toUpperCase()];
+    if (!art) {
+      for (var i = 0; i < ART_BY_WORD.length; i++) {
+        if (ART_BY_WORD[i].test.test(String(name || ''))) { art = PRODUCT_ART[ART_BY_WORD[i].sku]; break; }
+      }
+    }
+    if (!art) return null;   // gift card and anything unknown get no thumbnail
+    return {
+      img:  SHOP_ORIGIN + '/assets/products/' + art.file,
+      href: SHOP_ORIGIN + '/#/shop/' + art.slug
+    };
+  }
+
+  // ============================================================
+  //  DISCOUNTS
+  // ============================================================
+  var discLoaded = false;
+
+  function discMsg(kind, text) {
+    var el = document.getElementById('discMsg');
+    if (!el) return;
+    el.hidden = false;
+    el.className = 'disc-msg disc-msg--' + kind;
+    el.textContent = text;
+    if (kind === 'ok') setTimeout(function(){ el.hidden = true; }, 4000);
+  }
+
+  function discTerms(c) {
+    var t = c.kind === 'percent'
+      ? (Number(c.value) + '% off')
+      : (gbp(c.value, 2) + ' off');
+    if (c.free_shipping) t += ' + free delivery';
+    if (!c.once_per_customer) t += ' · reusable';
+    if (c.stripe_coupon_id) t += ' · stripe coupon';
+    return t;
+  }
+
+  function discDate(ts) {
+    if (!ts) return '—';
+    var d = new Date(ts);
+    return isNaN(d) ? '—' : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' });
+  }
+
+  function loadDiscounts(force) {
+    if (discLoaded && !force) return;
+    discLoaded = true;
+    api('/api/discounts').then(function (d) {
+      if (d && d.demo) state.anyDemo = true;
+      renderDiscounts((d && d.codes) || []);
+    });
+  }
+
+  function renderDiscounts(codes) {
+    var el = document.getElementById('discList');
+    if (!el) return;
+    if (!codes.length) {
+      el.innerHTML = '<p class="empty-state">No codes yet — add one above.</p>';
+      return;
+    }
+    el.innerHTML = codes.map(function (c) {
+      var used = Number(c.times_used || 0);
+      return '' +
+        '<div class="disc-row' + (c.active ? '' : ' disc-row--off') + '">' +
+          '<div>' +
+            '<div class="disc-row__code">' + esc(c.code) + '</div>' +
+            '<div class="disc-row__terms">' + esc(discTerms(c)) +
+              (c.description ? ' — ' + esc(c.description) : '') + '</div>' +
+          '</div>' +
+          '<div class="disc-row__stat">' + num(used) + '<span>USED</span></div>' +
+          '<div class="disc-row__stat">' + gbp(c.total_discount, 2) + '<span>GIVEN</span></div>' +
+          '<div class="disc-row__stat disc-row__rev">' + gbp(c.total_revenue, 2) + '<span>' +
+            (used ? esc(discDate(c.last_used_at)) : 'REVENUE') + '</span></div>' +
+          '<div class="disc-row__acts">' +
+            '<button class="disc-mini" data-disc-orders="' + esc(c.code) + '"' +
+              (used ? '' : ' disabled') + '>Orders</button>' +
+            '<button class="disc-mini" data-disc-toggle="' + c.id + '" data-active="' +
+              (c.active ? '1' : '0') + '">' + (c.active ? 'Turn off' : 'Turn on') + '</button>' +
+            '<button class="disc-mini disc-mini--danger" data-disc-del="' + c.id +
+              '" data-used="' + used + '">Delete</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="disc-orders" id="discOrders-' + c.id + '" hidden></div>';
+    }).join('');
+  }
+
+  function showDiscOrders(code, id, btn) {
+    var box = document.getElementById('discOrders-' + id);
+    if (!box) return;
+    if (!box.hidden) { box.hidden = true; btn.textContent = 'Orders'; return; }
+
+    btn.disabled = true; btn.textContent = 'Loading…';
+    api('/api/discounts?code=' + encodeURIComponent(code)).then(function (d) {
+      var orders = (d && d.orders) || [];
+      box.innerHTML = orders.length
+        ? '<table><thead><tr>' +
+            '<th>Order</th><th>Date</th><th>Customer</th>' +
+            '<th class="num">Discount</th><th class="num">Paid</th><th>Status</th>' +
+          '</tr></thead><tbody>' +
+          orders.map(function (o) {
+            return '<tr>' +
+              '<td>#' + esc(o.order_id) + '</td>' +
+              '<td>' + esc(discDate(o.created_at)) + '</td>' +
+              '<td>' + esc(o.customer_name || o.customer_email || '—') + '</td>' +
+              '<td class="num">−' + gbp(o.discount_amount, 2) + '</td>' +
+              '<td class="num">' + gbp(o.total, 2) + '</td>' +
+              '<td>' + (o.fulfilled ? 'Fulfilled' : esc(o.payment_status || 'Pending')) + '</td>' +
+            '</tr>';
+          }).join('') +
+          '</tbody></table>'
+        : '<p class="empty-state">No orders yet.</p>';
+      box.hidden = false;
+      btn.disabled = false;
+      btn.textContent = 'Hide';
+    });
+  }
+
+  function bootDiscounts() {
+    var form = document.getElementById('discForm');
+    if (form) {
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var btn = document.getElementById('discAdd');
+        btn.disabled = true; btn.textContent = 'Adding…';
+        fetch('/api/discounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code:              document.getElementById('discCode').value,
+            kind:              document.getElementById('discKind').value,
+            value:             document.getElementById('discValue').value,
+            description:       document.getElementById('discDesc').value,
+            free_shipping:     document.getElementById('discShip').checked,
+            once_per_customer: document.getElementById('discOnce').checked
+          })
+        }).then(function (r) { return r.json(); }).then(function (d) {
+          btn.disabled = false; btn.textContent = 'Add code';
+          if (d && d.error) return discMsg('err', d.error);
+          discMsg('ok', (d.code ? d.code.code : 'Code') + ' added and live on the shop.');
+          form.reset();
+          document.getElementById('discOnce').checked = true;
+          loadDiscounts(true);
+        }).catch(function () {
+          btn.disabled = false; btn.textContent = 'Add code';
+          discMsg('err', 'Could not reach the server.');
+        });
+      });
+    }
+
+    var list = document.getElementById('discList');
+    if (!list) return;
+    list.addEventListener('click', function (e) {
+      var btn = e.target.closest && e.target.closest('button');
+      if (!btn) return;
+
+      if (btn.dataset.discOrders) {
+        var row = btn.closest('.disc-row').nextElementSibling;
+        return showDiscOrders(btn.dataset.discOrders, row.id.replace('discOrders-', ''), btn);
+      }
+
+      if (btn.dataset.discToggle) {
+        btn.disabled = true;
+        fetch('/api/discounts', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: Number(btn.dataset.discToggle), active: btn.dataset.active !== '1' })
+        }).then(function (r) { return r.json(); }).then(function (d) {
+          if (d && d.error) { discMsg('err', d.error); btn.disabled = false; return; }
+          loadDiscounts(true);
+        }).catch(function () { btn.disabled = false; });
+        return;
+      }
+
+      if (btn.dataset.discDel) {
+        var used = Number(btn.dataset.used || 0);
+        var warn = used
+          ? 'This code has been used on ' + used + ' order' + (used === 1 ? '' : 's') + '.\n\n' +
+            'Deleting keeps those orders but the report loses the code\'s type and value. ' +
+            'Turning it off instead keeps the history intact.\n\nDelete anyway?'
+          : 'Delete this code?';
+        if (!confirm(warn)) return;
+        btn.disabled = true;
+        fetch('/api/discounts?id=' + encodeURIComponent(btn.dataset.discDel), { method: 'DELETE' })
+          .then(function (r) { return r.json(); }).then(function (d) {
+            if (d && d.error) { discMsg('err', d.error); btn.disabled = false; return; }
+            loadDiscounts(true);
+          }).catch(function () { btn.disabled = false; });
+      }
+    });
   }
 
   // ---- kickoff ----
