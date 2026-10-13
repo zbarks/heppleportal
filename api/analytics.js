@@ -31,6 +31,55 @@ async function hogql(host, projectId, key, query) {
   return data.results || [];
 }
 
+// ------------------------------------------------------------
+//  Weekly comparison, same shape as the PostHog weekly digest:
+//  last 7 days against the 7 days before. Each value is
+//  { cur, prev } so the portal can show the change.
+// ------------------------------------------------------------
+async function weekly(host, pid, key) {
+  const D = 7;
+  const ev = (cond) => `event = '$pageview' AND timestamp ${cond}`;
+  const inCur = `> now() - INTERVAL ${D} DAY`;
+  const inPrev = `<= now() - INTERVAL ${D} DAY`;
+  const sCur = `$start_timestamp > now() - INTERVAL ${D} DAY`;
+  const sPrev = `$start_timestamp <= now() - INTERVAL ${D} DAY`;
+  const n = (v) => Number(v) || 0;
+
+  const [ov, ses, pg] = await Promise.all([
+    hogql(host, pid, key, `
+      SELECT uniqIf(person_id, ${ev(inCur)}), uniqIf(person_id, ${ev(inPrev)}),
+             countIf(${ev(inCur)}), countIf(${ev(inPrev)})
+      FROM events WHERE timestamp > now() - INTERVAL ${D * 2} DAY
+    `),
+    hogql(host, pid, key, `
+      SELECT countIf(${sCur}), countIf(${sPrev}),
+             countIf($is_bounce AND ${sCur}), countIf($is_bounce AND ${sPrev}),
+             avgIf($session_duration, ${sCur}), avgIf($session_duration, ${sPrev})
+      FROM sessions WHERE $start_timestamp > now() - INTERVAL ${D * 2} DAY
+    `),
+    hogql(host, pid, key, `
+      SELECT properties.$pathname AS path,
+             uniqIf(person_id, ${ev(inCur)}) AS cur,
+             uniqIf(person_id, ${ev(inPrev)}) AS prev
+      FROM events
+      WHERE event = '$pageview' AND timestamp > now() - INTERVAL ${D * 2} DAY
+      GROUP BY path HAVING cur > 0 ORDER BY cur DESC LIMIT 8
+    `),
+  ]);
+
+  const o = ov[0] || [], s = ses[0] || [];
+  const rate = (b, t) => (t ? +((b / t) * 100).toFixed(1) : 0);
+  return {
+    days: D,
+    visitors:    { cur: n(o[0]), prev: n(o[1]) },
+    pageviews:   { cur: n(o[2]), prev: n(o[3]) },
+    sessions:    { cur: n(s[0]), prev: n(s[1]) },
+    bounceRate:  { cur: rate(n(s[2]), n(s[0])), prev: rate(n(s[3]), n(s[1])) },
+    avgDuration: { cur: Math.round(n(s[4])), prev: Math.round(n(s[5])) },
+    pages: pg.map((r) => ({ path: r[0] || '/', visitors: n(r[1]), prev: n(r[2]) })),
+  };
+}
+
 module.exports = async function handler(req, res) {
   const KEY = process.env.POSTHOG_PERSONAL_API_KEY;
   const PID = process.env.POSTHOG_PROJECT_ID;
@@ -95,8 +144,13 @@ module.exports = async function handler(req, res) {
     const abandonedCarts = Math.max(started - purchased, 0);
     const conversionRate = uniqueVisitors ? +(purchased / uniqueVisitors * 100).toFixed(2) : 0;
 
+    // A failure here should not take the rest of the page down.
+    let week = null;
+    try { week = await weekly(HOST, PID, KEY); } catch (e) { week = null; }
+
     return send(res, 200, {
       demo: false, source: 'posthog',
+      week,
       pageviews, uniqueVisitors, conversionRate,
       funnel, topPages, sources, dailyVisitors,
       abandonedCarts, abandonedValue: null,

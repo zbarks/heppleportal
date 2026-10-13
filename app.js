@@ -233,6 +233,7 @@
     api('/api/analytics').then(function(a) {
       state.analytics = a;
       if (a.demo) state.anyDemo = true;
+      renderWeek(a);
       renderTrafficKPIs(a);
       renderFunnel(a);
       renderTopPages(a);
@@ -770,6 +771,54 @@
   // ============================================================
   //  TRAFFIC
   // ============================================================
+  // Weekly figures, matching the PostHog weekly digest.
+  function pctChange(cur, prev) {
+    if (!prev) return null;
+    return Math.round((cur - prev) / prev * 100);
+  }
+  function changeHtml(cur, prev, upIsGood) {
+    var c = pctChange(cur, prev);
+    if (c === null) return '<span class="delta delta--none">No change data</span>';
+    if (c === 0) return '<span class="delta delta--none">No change</span>';
+    var up = c > 0;
+    var good = up === upIsGood;
+    return '<span class="delta ' + (good ? 'delta--good' : 'delta--bad') + '">' +
+      (up ? 'Up ' : 'Down ') + Math.abs(c) + '%</span>';
+  }
+  function fmtDuration(s) {
+    s = Math.round(s || 0);
+    if (s < 60) return s + 's';
+    var m = Math.floor(s / 60), r = s % 60;
+    return r ? m + 'm ' + r + 's' : m + 'm';
+  }
+  function renderWeek(a) {
+    var block = document.getElementById('weekBlock');
+    var w = a && a.week;
+    if (!block) return;
+    if (!w) { block.hidden = true; return; }
+    block.hidden = false;
+    var cards = [
+      { label: 'Visitors',      m: w.visitors,    val: num(w.visitors.cur),      good: true },
+      { label: 'Pageviews',     m: w.pageviews,   val: num(w.pageviews.cur),     good: true },
+      { label: 'Sessions',      m: w.sessions,    val: num(w.sessions.cur),      good: true },
+      { label: 'Bounce rate',   m: w.bounceRate,  val: w.bounceRate.cur + '%',   good: false },
+      { label: 'Avg. duration', m: w.avgDuration, val: fmtDuration(w.avgDuration.cur), good: true }
+    ];
+    document.getElementById('weekKpis').innerHTML = cards.map(function(c) {
+      return '<div class="traffic-kpi"><div class="traffic-kpi__label">' + esc(c.label) +
+        '</div><div class="traffic-kpi__val">' + esc(c.val) + '</div>' +
+        changeHtml(c.m.cur, c.m.prev, c.good) + '</div>';
+    }).join('');
+    var rows = (w.pages || []);
+    document.getElementById('weekPages').innerHTML = rows.length
+      ? rows.map(function(p) {
+          return '<tr><td class="week-table__page">' + esc(p.path || '/') + '</td>' +
+            '<td>' + num(p.visitors) + '</td>' +
+            '<td>' + changeHtml(p.visitors, p.prev, true) + '</td></tr>';
+        }).join('')
+      : '<tr><td colspan="3" class="empty-state">No visits yet this week.</td></tr>';
+  }
+
   function renderTrafficKPIs(a) {
     var el = document.getElementById('trafficKpis');
     if (!el) return;

@@ -187,7 +187,21 @@ function analytics() {
     date: new Date(today.getTime()-(29-i)*DAY).toISOString().slice(0,10),
     visitors: Math.round(Math.round(purchases*31)/30 * (0.5 + Math.random()))
   }));
+  const wv = Math.max(8, Math.round(purchases * 2.4));
+  const week = {
+    days: 7,
+    visitors:    { cur: wv, prev: Math.round(wv * 0.82) },
+    pageviews:   { cur: Math.round(wv * 2.1), prev: Math.round(wv * 1.7) },
+    sessions:    { cur: Math.round(wv * 1.2), prev: Math.round(wv * 0.95) },
+    bounceRate:  { cur: 41.2, prev: 44.8 },
+    avgDuration: { cur: 128, prev: 109 },
+    pages: topPages.slice(0, 5).map((p, i) => ({
+      path: p.path, visitors: Math.max(1, Math.round(wv * (0.9 - i * 0.15))),
+      prev: Math.max(0, Math.round(wv * (0.7 - i * 0.12))),
+    })),
+  };
   return {
+    week,
     pageviews, uniqueVisitors: Math.round(pageviews / 4.2),
     conversionRate: +((purchases / Math.round(purchases * 31)) * 100).toFixed(2),
     abandonedCarts: Math.round(purchases * 1.9) - purchases,

@@ -613,6 +613,23 @@ body {
 .traffic-kpi__label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: .1em; color: var(--ink3); font-family: var(--font-mono); margin-bottom: 6px; }
 .traffic-kpi__val { font-size: 1.4rem; font-weight: 700; letter-spacing: -.02em; }
 
+.delta { display: block; font-size: 0.72rem; margin-top: 4px; font-family: var(--font-mono); }
+.delta--good { color: #2f8f5b; }
+.delta--bad { color: #c0463a; }
+.delta--none { color: var(--ink3); }
+.week-desc { font-size: 0.78rem; color: var(--ink3); margin: 0 0 14px; }
+.week-pages { margin-bottom: 8px; }
+.week-gap { margin-top: 28px; }
+.week-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.week-table th {
+  text-align: left; font-size: 0.65rem; text-transform: uppercase; letter-spacing: .1em;
+  color: var(--ink3); font-family: var(--font-mono); font-weight: 500;
+  padding: 8px 0; border-bottom: 1px solid var(--cream3);
+}
+.week-table td { padding: 10px 0; border-bottom: 1px solid var(--cream3); }
+.week-table td .delta { margin-top: 0; }
+.week-table__page { font-family: var(--font-mono); overflow-wrap: anywhere; }
+
 .traffic-grid {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
   margin-top: 24px;
