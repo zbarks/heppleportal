@@ -32,12 +32,13 @@ async function hogql(host, projectId, key, query) {
 }
 
 // ------------------------------------------------------------
-//  Weekly comparison, same shape as the PostHog weekly digest:
-//  last 7 days against the 7 days before. Each value is
+//  Period comparison, same shape as the PostHog weekly digest:
+//  the last D days against the D days before. Each value is
 //  { cur, prev } so the portal can show the change.
 // ------------------------------------------------------------
-async function weekly(host, pid, key) {
-  const D = 7;
+const ALLOWED_DAYS = [7, 30, 90, 180, 365];
+
+async function comparison(host, pid, key, D) {
   const ev = (cond) => `event = '$pageview' AND timestamp ${cond}`;
   const inCur = `> now() - INTERVAL ${D} DAY`;
   const inPrev = `<= now() - INTERVAL ${D} DAY`;
@@ -63,7 +64,7 @@ async function weekly(host, pid, key) {
              uniqIf(person_id, ${ev(inPrev)}) AS prev
       FROM events
       WHERE event = '$pageview' AND timestamp > now() - INTERVAL ${D * 2} DAY
-      GROUP BY path HAVING cur > 0 ORDER BY cur DESC LIMIT 8
+      GROUP BY path HAVING cur > 0 ORDER BY cur DESC LIMIT 10
     `),
   ]);
 
@@ -80,6 +81,11 @@ async function weekly(host, pid, key) {
   };
 }
 
+function pickDays(req) {
+  const d = parseInt((req.query || {}).days, 10);
+  return ALLOWED_DAYS.indexOf(d) === -1 ? 30 : d;
+}
+
 module.exports = async function handler(req, res) {
   const KEY = process.env.POSTHOG_PERSONAL_API_KEY;
   const PID = process.env.POSTHOG_PROJECT_ID;
@@ -87,11 +93,14 @@ module.exports = async function handler(req, res) {
   const HOST = process.env.POSTHOG_HOST || 'https://us.i.posthog.com';
 
   if (!KEY || !PID) {
-    return send(res, 200, { demo: true, source: 'demo', ...demo.analytics() });
+    return send(res, 200, { demo: true, source: 'demo', ...demo.analytics(pickDays(req)) });
   }
 
   try {
-    const WINDOW = "timestamp > now() - INTERVAL 30 DAY";
+    const q = req.query || {};
+    let D = parseInt(q.days, 10);
+    if (ALLOWED_DAYS.indexOf(D) === -1) D = 30;
+    const WINDOW = `timestamp > now() - INTERVAL ${D} DAY`;
 
     const funnelRows = await hogql(HOST, PID, KEY, `
       SELECT event, count(DISTINCT person_id) AS people
@@ -102,6 +111,20 @@ module.exports = async function handler(req, res) {
     `);
     const fmap = {};
     funnelRows.forEach(r => { fmap[r[0]] = Number(r[1]) || 0; });
+
+    // Previous period of the same length, for conversion and abandoned carts.
+    let pmap = null;
+    try {
+      const prevRows = await hogql(HOST, PID, KEY, `
+        SELECT event, count(DISTINCT person_id) AS people
+        FROM events
+        WHERE timestamp > now() - INTERVAL ${D * 2} DAY AND timestamp <= now() - INTERVAL ${D} DAY
+          AND event IN ('$pageview','checkout_started','purchase')
+        GROUP BY event
+      `);
+      pmap = {};
+      prevRows.forEach(r => { pmap[r[0]] = Number(r[1]) || 0; });
+    } catch (e) { pmap = null; }
     const funnel = [
       { step: 'Visited site',     count: fmap['$pageview'] || 0 },
       { step: 'Viewed product',   count: fmap['product_viewed'] || 0 },
@@ -131,26 +154,38 @@ module.exports = async function handler(req, res) {
     `);
     const sources = srcRows.map(r => ({ source: r[0] || 'direct', visitors: Number(r[1]) || 0 }));
 
-    // Daily visitors for sparkline
+    // Visitors over time: daily up to 3 months, weekly beyond that.
+    const bucket = D > 90 ? 'toStartOfWeek(timestamp)' : 'toDate(timestamp)';
     const dailyRows = await hogql(HOST, PID, KEY, `
-      SELECT toDate(timestamp) AS day, count(DISTINCT person_id) AS uv
-      FROM events WHERE timestamp > now() - INTERVAL 30 DAY AND event = '$pageview'
+      SELECT ${bucket} AS day, count(DISTINCT person_id) AS uv
+      FROM events WHERE ${WINDOW} AND event = '$pageview'
       GROUP BY day ORDER BY day ASC
     `);
-    const dailyVisitors = dailyRows.map(r => ({ date: r[0], visitors: Number(r[1]) || 0 }));
+    const dailyVisitors = dailyRows.map(r => ({ date: String(r[0]).slice(0, 10), visitors: Number(r[1]) || 0 }));
 
     const started = fmap['checkout_started'] || 0;
     const purchased = fmap['purchase'] || 0;
     const abandonedCarts = Math.max(started - purchased, 0);
     const conversionRate = uniqueVisitors ? +(purchased / uniqueVisitors * 100).toFixed(2) : 0;
 
+    let prev = null;
+    if (pmap) {
+      const pv = pmap['$pageview'] || 0, ps = pmap['checkout_started'] || 0, pp = pmap['purchase'] || 0;
+      prev = {
+        conversionRate: pv ? +(pp / pv * 100).toFixed(2) : 0,
+        abandonedCarts: Math.max(ps - pp, 0),
+        purchases: pp,
+      };
+    }
+
     // A failure here should not take the rest of the page down.
-    let week = null;
-    try { week = await weekly(HOST, PID, KEY); } catch (e) { week = null; }
+    let compare = null;
+    try { compare = await comparison(HOST, PID, KEY, D); } catch (e) { compare = null; }
 
     return send(res, 200, {
       demo: false, source: 'posthog',
-      week,
+      days: D,
+      compare, prev, purchases: purchased,
       pageviews, uniqueVisitors, conversionRate,
       funnel, topPages, sources, dailyVisitors,
       abandonedCarts, abandonedValue: null,
@@ -159,7 +194,7 @@ module.exports = async function handler(req, res) {
     return send(res, 200, {
       demo: true, source: 'demo',
       error: String(err && err.message || err),
-      ...demo.analytics(),
+      ...demo.analytics(pickDays(req)),
     });
   }
 };

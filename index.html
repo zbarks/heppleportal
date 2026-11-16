@@ -315,23 +315,30 @@
     <div class="page-header">
       <div>
         <h1 class="page-title">Traffic</h1>
-        <p class="page-desc">Visitor behaviour from PostHog · last 30 days</p>
+        <p class="page-desc" id="trafficDesc">Visitor behaviour from PostHog · last 30 days</p>
+      </div>
+      <div class="window-picker" id="trafficPicker">
+        <button class="wp-btn" data-tdays="7">7d</button>
+        <button class="wp-btn is-active" data-tdays="30">30d</button>
+        <button class="wp-btn" data-tdays="90">3mo</button>
+        <button class="wp-btn" data-tdays="180">6mo</button>
+        <button class="wp-btn" data-tdays="365">1yr</button>
       </div>
     </div>
 
     <div id="weekBlock" hidden>
-      <h3 class="section-sub-title">This week</h3>
-      <p class="page-desc week-desc">Last 7 days, compared with the 7 days before.</p>
+      <h3 class="section-sub-title" id="weekTitle">Last 30 days</h3>
+      <p class="page-desc week-desc" id="weekDesc">Compared with the 30 days before.</p>
       <div class="traffic-kpis" id="weekKpis"></div>
       <div class="traffic-card week-pages">
-        <h3 class="traffic-card__title">Top pages this week</h3>
+        <h3 class="traffic-card__title" id="weekPagesTitle">Top pages</h3>
         <p class="week-desc">Pages with the most unique visitors</p>
         <table class="week-table">
-          <thead><tr><th>Page</th><th>Visitors</th><th>Vs previous week</th></tr></thead>
+          <thead><tr><th>Page</th><th>Visitors</th><th id="weekPagesHead">Vs previous period</th></tr></thead>
           <tbody id="weekPages"></tbody>
         </table>
       </div>
-      <h3 class="section-sub-title week-gap">Last 30 days</h3>
+      <h3 class="section-sub-title week-gap">Sales funnel</h3>
     </div>
 
     <div class="traffic-kpis" id="trafficKpis"></div>
@@ -339,7 +346,7 @@
     <div class="charts-row">
       <div class="chart-panel chart-panel--wide">
         <div class="chart-panel__head">
-          <h3 class="chart-panel__title">Daily visitors</h3>
+          <h3 class="chart-panel__title" id="visitorsChartTitle">Daily visitors</h3>
         </div>
         <div class="chart-wrap"><canvas id="visitorsChart" height="200"></canvas></div>
       </div>

@@ -41,6 +41,7 @@
     rangeFrom: null, rangeTo: null,
     selectedOrder: null,
     chartsBuilt: {},
+    trafficDays: 30,
     anyDemo: false,
   };
 
@@ -98,9 +99,9 @@
     });
 
     // Window picker
-    document.querySelectorAll('.wp-btn').forEach(function(btn) {
+    document.querySelectorAll('#windowPicker .wp-btn').forEach(function(btn) {
       btn.addEventListener('click', function() {
-        document.querySelectorAll('.wp-btn').forEach(function(b){ b.classList.remove('is-active'); });
+        document.querySelectorAll('#windowPicker .wp-btn').forEach(function(b){ b.classList.remove('is-active'); });
         btn.classList.add('is-active');
         if (btn.dataset.range === 'all') {
           state.rangeMode = 'all';
@@ -122,7 +123,7 @@
       state.rangeMode = 'custom';
       state.rangeFrom = f || null;
       state.rangeTo = t || null;
-      document.querySelectorAll('.wp-btn').forEach(function(b){ b.classList.remove('is-active'); });
+      document.querySelectorAll('#windowPicker .wp-btn').forEach(function(b){ b.classList.remove('is-active'); });
       loadMetrics();
       loadOrders();
     });
@@ -159,6 +160,8 @@
     }
     loadMetrics(dismissSplash);
     loadOrders(dismissSplash);
+    initTrafficPicker();
+    renderTrafficHeader();
     loadAnalytics();
   }
 
@@ -229,10 +232,45 @@
   // ============================================================
   //  LOAD ANALYTICS
   // ============================================================
+  var TRAFFIC_LABELS = {
+    7:   { name: 'Last 7 days',   short: '7 days',   prevLabel: 'previous 7 days' },
+    30:  { name: 'Last 30 days',  short: '30 days',  prevLabel: 'previous 30 days' },
+    90:  { name: 'Last 3 months', short: '3 months', prevLabel: 'previous 3 months' },
+    180: { name: 'Last 6 months', short: '6 months', prevLabel: 'previous 6 months' },
+    365: { name: 'Last year',     short: '1 year',   prevLabel: 'previous year' }
+  };
+  function renderTrafficHeader() {
+    var L = TRAFFIC_LABELS[state.trafficDays];
+    var set = function(id, t) { var e = document.getElementById(id); if (e) e.textContent = t; };
+    set('trafficDesc', 'Visitor behaviour from PostHog · ' + L.name.toLowerCase());
+    set('weekTitle', L.name);
+    set('weekDesc', 'Compared with the ' + L.prevLabel + '.');
+    set('weekPagesTitle', 'Top pages · ' + L.name.toLowerCase());
+    set('weekPagesHead', 'Vs ' + L.prevLabel);
+    set('visitorsChartTitle', state.trafficDays > 90 ? 'Weekly visitors' : 'Daily visitors');
+    document.querySelectorAll('#trafficPicker .wp-btn').forEach(function(b) {
+      b.classList.toggle('is-active', +b.getAttribute('data-tdays') === state.trafficDays);
+    });
+  }
+  function initTrafficPicker() {
+    document.querySelectorAll('#trafficPicker .wp-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var d = +btn.getAttribute('data-tdays');
+        if (d === state.trafficDays) return;
+        state.trafficDays = d;
+        renderTrafficHeader();
+        document.getElementById('weekKpis').style.opacity = '.5';
+        loadAnalytics();
+      });
+    });
+  }
+
   function loadAnalytics() {
-    api('/api/analytics').then(function(a) {
+    api('/api/analytics?days=' + state.trafficDays).then(function(a) {
+      if (a && a.days && a.days !== state.trafficDays) return; // stale response
       state.analytics = a;
       if (a.demo) state.anyDemo = true;
+      renderTrafficHeader();
       renderWeek(a);
       renderTrafficKPIs(a);
       renderFunnel(a);
@@ -793,7 +831,7 @@
   }
   function renderWeek(a) {
     var block = document.getElementById('weekBlock');
-    var w = a && a.week;
+    var w = a && a.compare;
     if (!block) return;
     if (!w) { block.hidden = true; return; }
     block.hidden = false;
@@ -816,21 +854,23 @@
             '<td>' + num(p.visitors) + '</td>' +
             '<td>' + changeHtml(p.visitors, p.prev, true) + '</td></tr>';
         }).join('')
-      : '<tr><td colspan="3" class="empty-state">No visits yet this week.</td></tr>';
+      : '<tr><td colspan="3" class="empty-state">No visits in this period.</td></tr>';
+    document.getElementById('weekKpis').style.opacity = '';
   }
 
   function renderTrafficKPIs(a) {
     var el = document.getElementById('trafficKpis');
     if (!el) return;
+    var pv = a.prev || null;
     var stats = [
-      { label: 'Pageviews',    val: num(a.pageviews || 0) },
-      { label: 'Unique visitors', val: num(a.uniqueVisitors || 0) },
-      { label: 'Conversion',   val: (a.conversionRate || 0) + '%' },
-      { label: 'Abandoned carts', val: num(a.abandonedCarts || 0) },
+      { label: 'Conversion',      val: (a.conversionRate || 0) + '%', cur: a.conversionRate || 0, prev: pv && pv.conversionRate, good: true },
+      { label: 'Purchases',       val: num(a.purchases || 0),         cur: a.purchases || 0,      prev: pv && pv.purchases,      good: true },
+      { label: 'Abandoned carts', val: num(a.abandonedCarts || 0),    cur: a.abandonedCarts || 0, prev: pv && pv.abandonedCarts, good: false }
     ];
     el.innerHTML = stats.map(function(s) {
       return '<div class="traffic-kpi"><div class="traffic-kpi__label">' + esc(s.label) +
-        '</div><div class="traffic-kpi__val">' + esc(s.val) + '</div></div>';
+        '</div><div class="traffic-kpi__val">' + esc(s.val) + '</div>' +
+        (pv ? changeHtml(s.cur, s.prev, s.good) : '') + '</div>';
     }).join('');
   }
 

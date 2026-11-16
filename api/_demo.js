@@ -155,8 +155,9 @@ function topCustomers() {
     .sort((a, b) => b.spent - a.spent).slice(0, 10);
 }
 
-function analytics() {
-  const m = metrics(90);
+function analytics(days) {
+  days = days || 30;
+  const m = metrics(days);
   const purchases = m.orders;
   const pageviews = Math.round(purchases * 47);
   const funnel = [
@@ -183,13 +184,15 @@ function analytics() {
     { source: 'Referral',  visitors: Math.round(pageviews * 0.10 / 6) },
   ];
   const DAY = 86400000; const today = new Date(); today.setHours(0,0,0,0);
-  const dailyVisitors = Array.from({length:30},(_,i)=>({
-    date: new Date(today.getTime()-(29-i)*DAY).toISOString().slice(0,10),
-    visitors: Math.round(Math.round(purchases*31)/30 * (0.5 + Math.random()))
+  const step = days > 90 ? 7 : 1;
+  const points = Math.ceil(days / step);
+  const dailyVisitors = Array.from({length:points},(_,i)=>({
+    date: new Date(today.getTime()-(points-1-i)*step*DAY).toISOString().slice(0,10),
+    visitors: Math.round(Math.round(purchases*31)/days*step * (0.5 + Math.random()))
   }));
   const wv = Math.max(8, Math.round(purchases * 2.4));
-  const week = {
-    days: 7,
+  const compare = {
+    days,
     visitors:    { cur: wv, prev: Math.round(wv * 0.82) },
     pageviews:   { cur: Math.round(wv * 2.1), prev: Math.round(wv * 1.7) },
     sessions:    { cur: Math.round(wv * 1.2), prev: Math.round(wv * 0.95) },
@@ -200,8 +203,11 @@ function analytics() {
       prev: Math.max(0, Math.round(wv * (0.7 - i * 0.12))),
     })),
   };
+  const conv = +((purchases / Math.round(purchases * 31)) * 100).toFixed(2);
   return {
-    week,
+    days, compare,
+    prev: { conversionRate: +(conv * 0.9).toFixed(2), abandonedCarts: Math.round((Math.round(purchases * 1.9) - purchases) * 1.1), purchases: Math.round(purchases * 0.88) },
+    purchases,
     pageviews, uniqueVisitors: Math.round(pageviews / 4.2),
     conversionRate: +((purchases / Math.round(purchases * 31)) * 100).toFixed(2),
     abandonedCarts: Math.round(purchases * 1.9) - purchases,
